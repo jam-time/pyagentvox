@@ -1,6 +1,12 @@
 # PyAgentVox Configuration - Voice-Specific Profiles
 # Default uses mixed voices, profiles use single voice with emotion tuning
 
+# Speech Recognition Settings
+stt:
+  energy_threshold: 4000  # Microphone sensitivity (lower = more sensitive)
+                          # Typical range: 300-4000
+                          # Adjust if mic is too sensitive or not picking up speech
+
 # Default Configuration - Mixed voices optimized per emotion
 neutral:
   voice: "en-US-MichelleNeural"

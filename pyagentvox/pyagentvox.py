@@ -262,6 +262,10 @@ class PyAgentVox:
         self.stt_paused: bool = False
         self.stt_idle_timeout: float = 600.0  # 10 minutes in seconds
 
+        # Speech recognition sensitivity
+        stt_settings = self.config.get('stt', {})
+        self.energy_threshold: int = stt_settings.get('energy_threshold', 4000)
+
         self._start_voice_injector()
         self._start_tts_monitor()
 
@@ -643,9 +647,11 @@ class PyAgentVox:
         """Run speech recognition loop with auto-pause on idle."""
         recognizer = sr.Recognizer()
         recognizer.pause_threshold = 3.5
-        recognizer.energy_threshold = 300
+        recognizer.energy_threshold = self.energy_threshold
         recognizer.dynamic_energy_threshold = True
         recognizer.non_speaking_duration = 1.0
+
+        logger.info(f'[STT] Microphone sensitivity: {self.energy_threshold} (lower = more sensitive)')
 
         self.output_file.write(f"\n{'=' * 60}\n")
         self.output_file.write(f"Voice session started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")

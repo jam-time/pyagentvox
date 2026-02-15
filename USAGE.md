@@ -69,6 +69,12 @@ Supports both **YAML** and **JSON** formats.
 #### Example config.yaml
 
 ```yaml
+# Speech Recognition Settings
+stt:
+  energy_threshold: 4000  # Microphone sensitivity (lower = more sensitive)
+                          # Typical range: 300-4000
+                          # Adjust if mic is too sensitive or not picking up speech
+
 # Emotion-specific voice settings (no nesting!)
 neutral:
   voice: "en-US-MichelleNeural"
@@ -110,6 +116,9 @@ profiles:
 
 ```json
 {
+  "stt": {
+    "energy_threshold": 4000
+  },
   "emotions": {
     "neutral": {
       "voice": "en-US-MichelleNeural",

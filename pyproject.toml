@@ -47,6 +47,12 @@ Repository = "https://github.com/jmeador/pyagentvox"
 Documentation = "https://github.com/jmeador/pyagentvox/blob/main/README.md"
 Issues = "https://github.com/jmeador/pyagentvox/issues"
 
+[project.optional-dependencies]
+dev = [
+    'pytest>=8.0.0',
+    'pytest-cov>=4.1.0',
+]
+
 [project.scripts]
 pyagentvox = 'pyagentvox.pyagentvox:main'
 voice-injector = 'pyagentvox.injection:main'
