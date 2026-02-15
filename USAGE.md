@@ -470,7 +470,7 @@ Use emotion tags in your AI's responses to change voice personality:
 Make sure:
 1. PyAgentVox is running first (creates temp files)
 2. Claude Code window is in focus when voice injector starts
-3. AutoHotkey is installed (Windows only)
+3. Python dependencies are installed (pynput for keyboard automation)
 
 ### TTS not working
 
