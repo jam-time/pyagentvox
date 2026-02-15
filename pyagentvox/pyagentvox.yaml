@@ -1,0 +1,291 @@
+# PyAgentVox Configuration - Voice-Specific Profiles
+# Default uses mixed voices, profiles use single voice with emotion tuning
+
+# Default Configuration - Mixed voices optimized per emotion
+neutral:
+  voice: "en-US-MichelleNeural"
+  speed: "+10%"
+  pitch: "+5Hz"
+
+cheerful:
+  voice: "en-US-JennyNeural"
+  speed: "+18%"
+  pitch: "+12Hz"
+
+excited:
+  voice: "en-US-JennyNeural"
+  speed: "+25%"
+  pitch: "+15Hz"
+
+empathetic:
+  voice: "en-US-EmmaNeural"
+  speed: "+0%"
+  pitch: "+3Hz"
+
+warm:
+  voice: "en-US-EmmaNeural"
+  speed: "+5%"
+  pitch: "+8Hz"
+
+calm:
+  voice: "en-US-AriaNeural"
+  speed: "+0%"
+  pitch: "+3Hz"
+
+focused:
+  voice: "en-US-AvaNeural"
+  speed: "+8%"
+  pitch: "+0Hz"
+
+# ✨ Single-Voice Profiles
+# Use with: python -m pyagentvox --profile michelle
+profiles:
+  # Michelle - Balanced, versatile voice
+  michelle:
+    neutral:
+      voice: "en-US-MichelleNeural"
+      speed: "+10%"
+      pitch: "+10Hz"     # Increased from +5Hz
+    cheerful:
+      voice: "en-US-MichelleNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-US-MichelleNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-US-MichelleNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-US-MichelleNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-US-MichelleNeural"
+      speed: "+0%"
+      pitch: "+3Hz"      # Increased from -5Hz
+    focused:
+      voice: "en-US-MichelleNeural"
+      speed: "+8%"
+      pitch: "+5Hz"
+
+  # Jenny - Energetic, upbeat voice
+  jenny:
+    neutral:
+      voice: "en-US-JennyNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-US-JennyNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-US-JennyNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-US-JennyNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-US-JennyNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-US-JennyNeural"
+      speed: "+0%"
+      pitch: "+3Hz"      # Increased from -5Hz
+    focused:
+      voice: "en-US-JennyNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # Emma - Warm, caring voice
+  emma:
+    neutral:
+      voice: "en-US-EmmaNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-US-EmmaNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-US-EmmaNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-US-EmmaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-US-EmmaNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-US-EmmaNeural"
+      speed: "+0%"
+      pitch: "-5Hz"
+    focused:
+      voice: "en-US-EmmaNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # Aria - Professional, bright voice
+  aria:
+    neutral:
+      voice: "en-US-AriaNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-US-AriaNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-US-AriaNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-US-AriaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-US-AriaNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-US-AriaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    focused:
+      voice: "en-US-AriaNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # Ava - Clear, precise voice
+  ava:
+    neutral:
+      voice: "en-US-AvaNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-US-AvaNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-US-AvaNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-US-AvaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-US-AvaNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-US-AvaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    focused:
+      voice: "en-US-AvaNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # ===== British Voices =====
+
+  # Sonia - British, calm professional
+  sonia:
+    neutral:
+      voice: "en-GB-SoniaNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-GB-SoniaNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-GB-SoniaNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-GB-SoniaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-GB-SoniaNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-GB-SoniaNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    focused:
+      voice: "en-GB-SoniaNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # Libby - British, friendly
+  libby:
+    neutral:
+      voice: "en-GB-LibbyNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-GB-LibbyNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-GB-LibbyNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-GB-LibbyNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-GB-LibbyNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-GB-LibbyNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    focused:
+      voice: "en-GB-LibbyNeural"
+      speed: "+8%"
+      pitch: "+0Hz"
+
+  # Maisie - British, young
+  maisie:
+    neutral:
+      voice: "en-GB-MaisieNeural"
+      speed: "+10%"
+      pitch: "+5Hz"
+    cheerful:
+      voice: "en-GB-MaisieNeural"
+      speed: "+18%"
+      pitch: "+12Hz"
+    excited:
+      voice: "en-GB-MaisieNeural"
+      speed: "+25%"
+      pitch: "+15Hz"
+    empathetic:
+      voice: "en-GB-MaisieNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    warm:
+      voice: "en-GB-MaisieNeural"
+      speed: "+5%"
+      pitch: "+8Hz"
+    calm:
+      voice: "en-GB-MaisieNeural"
+      speed: "+0%"
+      pitch: "+3Hz"
+    focused:
+      voice: "en-GB-MaisieNeural"
+      speed: "+8%"
+      pitch: "+0Hz"

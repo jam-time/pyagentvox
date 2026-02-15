@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.kiro/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.tmp
+
+# User-specific config files in root directory
+# (Package default is at pyagentvox/pyagentvox.yaml)
+/config.yaml
+/pyagentvox.json
+/pyagentvox.yaml
+
+# UV lock file (regenerate per environment)
+uv.lock
+
+# Temp/cache
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
