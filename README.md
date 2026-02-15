@@ -17,7 +17,8 @@
 - 🎯 **Auto-Injection** - Automatically injects voice instructions into instruction files
 - 🛑 **Voice Commands** - Say "stop listening" to stop PyAgentVox
 - ⏸️ **Auto-Pause STT** - Speech recognition auto-pauses after 10 min idle, resumes on TTS
-- 🪟 **Windows Support** - Voice injector with keyboard automation
+- 🪟 **Background Typing** - Voice input works without stealing focus from your current window
+- 🔧 **Windows Support** - Voice injector using Windows messaging API
 
 ## 📦 Installation
 

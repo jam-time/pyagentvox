@@ -82,6 +82,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smart resume on TTS** - STT resumes when AI responds (prevents background noise pickup)
 - **TTS-only mode respect** - Auto-resume never activates STT if in TTS-only mode
 
+### Changed
+- **Background keyboard input** - Voice injector now uses Windows messaging API (PostMessage) instead of SetForegroundWindow
+- **No focus stealing** - You can work in other windows while voice input types into Claude Code in the background
+- **Removed pynput dependency** - Now uses native win32api for direct window messaging
+
 ### Future Considerations
 - macOS/Linux support for voice injector
 - Alternative TTS engines (local TTS, other cloud providers)

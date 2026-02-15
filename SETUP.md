@@ -56,7 +56,8 @@ PyAgentVox consists of 4 coordinating components:
 3. **Voice Injector** (`injection.py`)
    - Subprocess launched by main process
    - Monitors PyAgentVox output file (STT output)
-   - Uses `pynput` keyboard automation to type speech
+   - Uses Windows messaging API (PostMessage) to type speech
+   - Works without stealing focus - you can stay in your current window!
    - Presses Enter to submit to Claude Code
    - Supports "stop listening" voice command
 
@@ -80,8 +81,7 @@ All dependencies are in `pyproject.toml`:
 - `pygame` - Audio playback
 - `SpeechRecognition` - Google Speech API wrapper
 - `PyAudio` - Microphone access
-- `pynput` - Keyboard automation
-- `win32gui` (pywin32) - Window management
+- `pywin32` - Windows API (win32gui, win32api, win32con) for background keyboard input
 - `psutil` - Process management
 - `pyyaml` - Config file support
 - `mutagen` - Audio file metadata
@@ -417,14 +417,18 @@ recognizer.energy_threshold = 150  # Lower = more sensitive
 
 **Checks:**
 1. Verify voice injector is running
-2. **Claude Code window must be focused when PyAgentVox starts**
-3. Check for keyboard automation issues
+2. **Claude Code window must be focused when PyAgentVox starts** (for window detection)
+3. After startup, voice input works even when you're in other windows!
+
+**Note:** The voice injector uses Windows messaging API to type into Claude Code without stealing focus. You can work in your browser, IDE, or any other window and still have your speech typed into Claude Code in the background!
 
 **Solutions:**
 ```bash
-# Ensure Claude Code is focused, then restart PyAgentVox
-# The voice injector captures whatever window is focused on startup
+# Focus Claude Code window briefly, then start PyAgentVox
+# The injector captures the window handle on startup
 python -m pyagentvox --profile michelle
+
+# After startup, you can switch to other windows freely!
 ```
 
 ### Multiple instances running
@@ -518,6 +522,7 @@ pyagentvox/
 5. **Use TTS-only mode remotely** - Avoid picking up background audio
 6. **Check temp files** - When debugging, examine `/tmp/agent_*.txt` directly
 7. **Clean up stale locks** - If startup fails, remove PID file manually
+8. **Work without interruption** - Voice input types into Claude Code in the background while you stay focused on other windows!
 
 ## 🎯 Next Steps
 

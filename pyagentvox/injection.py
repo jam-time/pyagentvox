@@ -1,24 +1,24 @@
 """Voice input injector for Claude Code.
 
 This module monitors PyAgentVox STT output and automatically types transcribed
-speech into the Claude Code window using keyboard automation. Runs as a
+speech into the Claude Code window using Windows messaging API. Runs as a
 separate subprocess launched by PyAgentVox main process.
 
 Features:
     - Auto-detects PyAgentVox output file
-    - Keyboard automation using pynput
-    - Focus management for Claude Code window
+    - Background keyboard input using PostMessage (no focus stealing)
+    - Works while you're focused on other windows
     - "Stop listening" voice command support
 
 Usage:
-    # Auto-detect and use foreground window
-    python -m pyagentvox.voice_injector --use-foreground --startup-delay 3
+    # Auto-detect and use foreground window (captures target on startup)
+    python -m pyagentvox.voice_injector --use-foreground
 
     # Specify output file and window title
     python -m pyagentvox.voice_injector --output-file /tmp/agent_output_12345.txt --window-title "Claude Code"
 
 Platform:
-    Windows only (uses win32gui and pynput)
+    Windows only (uses win32gui, win32api, win32con)
 
 Author:
     Jake Meador <jameador13@gmail.com>
@@ -41,12 +41,11 @@ logger = logging.getLogger('pyagentvox.voice_injector')
 
 if sys.platform == 'win32':
     import win32gui
-    from pynput.keyboard import Controller, Key
+    import win32api
+    import win32con
 else:
     logger.error(f'Platform {sys.platform} not yet supported. Windows only for now.')
     sys.exit(1)
-
-keyboard = Controller()
 
 
 class VoiceInjector:
@@ -103,7 +102,9 @@ class VoiceInjector:
     def send_text_to_window(self, text: str) -> bool:
         """Send text to Claude Code window without stealing focus.
 
-        Uses pynput keyboard simulation for reliable text input.
+        Uses Windows messaging API (PostMessage) to send keystrokes directly to
+        the window without requiring it to be in focus. This allows you to continue
+        working in other windows while voice input is typed into Claude Code.
 
         Args:
             text: Text to send
@@ -118,16 +119,24 @@ class VoiceInjector:
                 return False
 
         try:
-            win32gui.SetForegroundWindow(self.hwnd)
-            time.sleep(0.1)
-            keyboard.type(text)
-            time.sleep(0.1)
-            # Double enter press for stability - first one sometimes doesn't register
-            keyboard.press(Key.enter)
-            keyboard.release(Key.enter)
+            # Send each character as WM_CHAR message directly to the window
+            for char in text:
+                win32api.PostMessage(self.hwnd, win32con.WM_CHAR, ord(char), 0)
+                time.sleep(0.01)  # Small delay for reliability
+
             time.sleep(0.05)
-            keyboard.press(Key.enter)
-            keyboard.release(Key.enter)
+
+            # Send Enter key using WM_KEYDOWN/WM_KEYUP
+            win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+            time.sleep(0.05)
+            win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+
+            # Send second Enter for stability (sometimes first doesn't register)
+            time.sleep(0.05)
+            win32api.PostMessage(self.hwnd, win32con.WM_KEYDOWN, win32con.VK_RETURN, 0)
+            time.sleep(0.05)
+            win32api.PostMessage(self.hwnd, win32con.WM_KEYUP, win32con.VK_RETURN, 0)
+
             return True
         except Exception as e:
             logger.error(f'Error sending text to window: {e}')

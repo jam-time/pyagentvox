@@ -36,7 +36,6 @@ dependencies = [
     'psutil>=6.1.0',
     'pyaudio>=0.2.14',
     'pygame>=2.6.0',
-    'pynput>=1.7.0',
     'pywin32>=311; sys_platform == "win32"',
     'pyyaml>=6.0.3',
     'speechrecognition>=3.14.0',
