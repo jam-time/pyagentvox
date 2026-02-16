@@ -5,6 +5,12 @@ Two-way voice communication system for AI agents with speech-to-text input and t
 ![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Abstract
+
+Stop typing everything to your AI. PyAgentVox turns Claude Code into a voice-first interface where you speak naturally and Claude responds with emotion-aware speech. The AI can switch between cheerful, calm, or empathetic voices mid-response based on context. Change voice profiles on the fly without restarting. Run multiple Claude Code windows simultaneously, each with its own voice personality. Everything works in the background - keep coding while your voice input types automatically, no window stealing.
+
+Built for developers who want natural conversations with AI without breaking flow. Windows-only, Python 3.12+, works with Claude Code out of the box.
+
 ## Table of Contents
 
 - [Features](#features)
