@@ -5,30 +5,43 @@
 ![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## ✨ Features
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Documentation](#documentation)
+- [How It Works](#how-it-works)
+- [Runtime Controls](#runtime-controls)
+- [Multi-Instance Support](#multi-instance-support)
+- [Configuration](#configuration)
+- [CLI Examples](#cli-examples)
+- [Requirements](#requirements)
+
+## Features
 
 ### 🚀 The Wow Factor
-- 🎚️ **Runtime Controls** - Toggle TTS/STT, switch profiles, modify voices **without restarting**
-- 🖥️ **Multi-Instance Support** - Run multiple Claude Code windows with **independent voice profiles**
-- 🪟 **Background Typing** - Voice input works **without stealing focus** from your current window
-- 📡 **CLI Subcommands** - Clean command interface: `start`, `stop`, `switch`, `tts`, `stt`, `modify`, `status`
+- **Runtime Controls** - Toggle TTS/STT, switch profiles, modify voices without restarting
+- **Multi-Instance Support** - Run multiple Claude Code windows with independent voice profiles
+- **Background Typing** - Voice input works without stealing focus from your current window
+- **CLI Subcommands** - Clean interface: `start`, `stop`, `switch`, `tts`, `stt`, `modify`, `status`
 
 ### 🎭 Voice & Emotion
-- 🎤 **Voice Input** - Speak naturally and your words are sent to the AI
-- 🔊 **Voice Output** - AI responses are spoken aloud with natural voices
-- 🎭 **Emotion Support** - Different voices for different emotions (cheerful, calm, empathetic, etc.)
-- 🌍 **Multiple Voices** - Male and female voices in US and British English
+- **Voice Input** - Speak naturally and your words are sent to the AI
+- **Voice Output** - AI responses are spoken aloud with natural voices
+- **Emotion Support** - Different voices for different emotions (cheerful, calm, empathetic, etc.)
+- **Multiple Voices** - Male and female voices in US and British English
 
 ### ⚙️ Configuration & Control
-- ⚙️ **Highly Configurable** - JSON/YAML config with profiles and CLI overrides
-- 🎯 **Auto-Injection** - Automatically injects voice instructions into instruction files
-- 🛑 **Voice Commands** - Say "stop listening" to stop PyAgentVox
-- ⏸️ **Auto-Pause STT** - Speech recognition auto-pauses after 10 min idle, resumes on TTS
+- **Highly Configurable** - JSON/YAML config with profiles and CLI overrides
+- **Auto-Injection** - Automatically injects voice instructions into instruction files
+- **Voice Commands** - Say "stop listening" to stop PyAgentVox
+- **Auto-Pause STT** - Speech recognition auto-pauses after 10 min idle, resumes on TTS
 
 ### 🔧 Platform & Integration
-- 🔧 **Windows Support** - Voice injector using Windows messaging API (PostMessage, no focus stealing)
-- 🔌 **Programmatic API** - Use as a library or CLI tool
-- 📦 **Easy Installation** - Install as Python package
+- **Windows Support** - Voice injector using Windows messaging API (PostMessage, no focus stealing)
+- **Programmatic API** - Use as a library or CLI tool
+- **Easy Installation** - Install as Python package
 
 ## 📦 Installation
 
@@ -108,9 +121,6 @@ python -m pyagentvox stop            # Stop PyAgentVox
 |----------|-------------|
 | **[CONTRIBUTING.md](CONTRIBUTING.md)** | Contribution guidelines and development workflow |
 | **[CHANGELOG.md](CHANGELOG.md)** | Version history and release notes |
-| **[.claude/docs/style-guide.md](.claude/docs/style-guide.md)** | Code style standards (PEP 8, quotes, naming, docstrings) |
-| **[.claude/docs/patterns.md](.claude/docs/patterns.md)** | Common patterns (async, error handling, resource management) |
-| **[.claude/docs/testing.md](.claude/docs/testing.md)** | Testing standards, mocking, and assertions |
 
 ### 🔗 Quick Links
 
@@ -120,7 +130,7 @@ python -m pyagentvox stop            # Stop PyAgentVox
 - [Troubleshooting](SETUP.md#troubleshooting) - Common issues and solutions
 - [Architecture Diagram](SETUP.md#architecture-overview) - How components work together
 
-## 🏗️ How It Works
+## How It Works
 
 PyAgentVox integrates with Claude Code through four coordinated components:
 
@@ -135,7 +145,7 @@ PyAgentVox integrates with Claude Code through four coordinated components:
 
 See [SETUP.md](SETUP.md#architecture-overview) for detailed architecture diagrams.
 
-## 🎭 Emotion Tags
+## Emotion Tags
 
 Claude can use emotion tags to dynamically change voice:
 
@@ -149,7 +159,7 @@ Claude can use emotion tags to dynamically change voice:
 
 **How it works:** Text is split into segments at emotion tags. Each segment uses that emotion's voice settings (pitch, speed, voice actor). Tags are removed before speaking.
 
-## 🎚️ Runtime Controls
+## Runtime Controls
 
 Control PyAgentVox on the fly without restarting:
 
@@ -182,7 +192,7 @@ python -m pyagentvox stt off
 
 **Use case:** Silent mode for public spaces, or keyboard-only when microphone isn't available!
 
-### Voice Modification
+### Voice Settings
 
 ```bash
 # Adjust pitch/speed for all emotions
@@ -200,7 +210,7 @@ python -m pyagentvox modify cheerful.speed=-5
 
 **Use case:** Fine-tune voice to your preferences in real-time without config edits!
 
-## 🖥️ Multi-Instance Support
+## Multi-Instance Support
 
 Run multiple Claude Code windows with independent PyAgentVox instances!
 
@@ -220,7 +230,7 @@ python -m pyagentvox start --profile guy_voices
 
 **Note:** Each instance monitors its own Claude Code window. Voice input is sent to the specific window that started PyAgentVox.
 
-## ⚙️ Configuration
+## Configuration
 
 ### Quick Config (YAML)
 
