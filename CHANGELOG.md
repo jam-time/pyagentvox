@@ -161,6 +161,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Error handling** - Improved exception handling in all watchers
 - **Resource cleanup** - Proper atexit handlers for lock file removal
 
+## [0.2.1] - 2026-02-16
+
+### Documentation
+- Applied new documentation standards across all docs
+- Added internal table of contents to README
+- Added human-friendly abstract explaining value proposition
+- Removed casual language and marketing fluff
+- Removed links to .gitignore'd files
+- Created documentation agent with style guidelines
+- Reduced excessive emoji usage (kept section markers only)
+
 ## [Unreleased]
 
 ### Future Considerations
