@@ -77,26 +77,74 @@ def remove_emojis(text: str) -> str:
 
 
 def clean_for_tts(text: str) -> str:
-    """Clean text for TTS - remove markdown, URLs, code blocks, HTML tags."""
+    """Clean text for TTS - remove verbose content but keep important context.
+
+    Smart filtering:
+    - Paths: Keep filename only (C:\\path\\to\\file.py -> file.py)
+    - URLs: Remove completely
+    - Code: Remove code blocks and inline code
+    - Markdown: Strip formatting but keep content
+    - Lists: Remove bullets/numbers but keep text
+    """
+    # Remove code blocks (triple backticks)
     text = re.sub(r'```[\s\S]*?```', '', text)
+
+    # Remove inline code (single backticks)
     text = re.sub(r'`[^`]+`', '', text)
-    text = re.sub(r'https?://\S+', '', text)
-    text = re.sub(r'www\.\S+', '', text)
-    text = re.sub(r'[A-Z]:\\[^\s<>"|]*', '', text)
-    text = re.sub(r'/[\w/\-_.]+\.\w+', '', text)
+
+    # Remove HTTP/HTTPS URLs completely
+    text = re.sub(r'https?://[^\s<>"\')]+', '', text)
+    text = re.sub(r'www\.[^\s<>"\')]+', '', text)
+
+    # Windows paths: Replace with just filename
+    # Match: C:\path\to\file.ext -> file.ext
+    # More specific: must have drive letter, colon, backslash, and multiple path components
+    text = re.sub(
+        r'\b[A-Z]:\\(?:[^\\/:*?"<>|\s]+\\)+([^\\/:*?"<>|\s]+)',
+        r'\1',
+        text
+    )
+
+    # Unix paths: Replace with just filename
+    # Match: /path/to/file.ext -> file.ext
+    # More specific: must start with /, have at least 2 components, end with extension
+    text = re.sub(
+        r'\B/(?:[^/\s]+/)+([^/\s]+\.\w+)\b',
+        r'\1',
+        text
+    )
+
+    # Remove HTML tags
     text = re.sub(r'<[^>]+>', '', text)
-    # NOTE: Emotion tags [cheerful] preserved - PyAgentVox handles them
+
+    # NOTE: Emotion tags [cheerful], [excited], etc. are preserved - PyAgentVox handles them
+
+    # Remove markdown headers (# ## ###) but keep the text
     text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
+
+    # Convert markdown links [text](url) to just text
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+
+    # Remove bullet points but keep text
     text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+
+    # Remove numbered list markers but keep text
     text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+
+    # Collapse multiple spaces/tabs to single space
     text = re.sub(r'[ \t]+', ' ', text)
+
+    # Collapse multiple newlines to single newline
     text = re.sub(r'\n\n+', '\n', text)
+
+    # Remove emojis (they don't speak well)
     text = remove_emojis(text)
+
     return text.strip()
 
 
-def main():
+def main() -> None:
+    """Run TTS monitor to watch Claude conversation files and send responses to PyAgentVox."""
     parser = argparse.ArgumentParser(description='TTS Monitor - Luna Voice Output')
     parser.add_argument('--input-file', type=str, help='PyAgentVox input file path')
     args = parser.parse_args()
@@ -110,13 +158,11 @@ def main():
     # Find most recently active project directory
     projects_dir = Path.home() / '.claude' / 'projects'
     if not projects_dir.exists():
-        logger.error(f'Claude projects directory not found: {projects_dir}')
-        return 1
+        raise FileNotFoundError(f'Claude projects directory not found: {projects_dir}')
 
     project_dirs = [d for d in projects_dir.iterdir() if d.is_dir()]
     if not project_dirs:
-        logger.error('No Claude projects found!')
-        return 1
+        raise FileNotFoundError('No Claude projects found!')
 
     # Use most recently modified project
     conv_dir = max(project_dirs, key=lambda p: p.stat().st_mtime)
@@ -125,8 +171,7 @@ def main():
     jsonl_files = sorted(conv_dir.glob('*.jsonl'), key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not jsonl_files:
-        logger.error(f'No conversation files found in {conv_dir.name}!')
-        return 1
+        raise FileNotFoundError(f'No conversation files found in {conv_dir.name}!')
 
     conv_file = jsonl_files[0]
     logger.info(f'Watching: {conv_file.name}')
@@ -135,14 +180,12 @@ def main():
     if not args.input_file:
         tts_files = glob.glob(str(Path(tempfile.gettempdir()) / 'agent_input_*.txt'))
         if not tts_files:
-            logger.error('PyAgentVox not running!')
-            return 1
+            raise FileNotFoundError('PyAgentVox not running! No input files found.')
         tts_file = Path(tts_files[0])
     else:
         tts_file = Path(args.input_file)
         if not tts_file.exists():
-            logger.error(f'Provided input file does not exist: {tts_file}')
-            return 1
+            raise FileNotFoundError(f'Provided input file does not exist: {tts_file}')
 
     logger.info(f'TTS Output: {tts_file.name}')
     logger.info('')
@@ -208,12 +251,10 @@ def main():
 
         except KeyboardInterrupt:
             logger.info('\n\nStopped!')
-            return 0
+            return
         except Exception as e:
             logger.error(f'Error: {e}')
             time.sleep(1)
-
-    return 0  # Explicit success return (though loop is infinite)
 
 if __name__ == '__main__':
     sys.exit(main())

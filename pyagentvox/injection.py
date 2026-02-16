@@ -44,8 +44,7 @@ if sys.platform == 'win32':
     import win32api
     import win32con
 else:
-    logger.error(f'Platform {sys.platform} not yet supported. Windows only for now.')
-    sys.exit(1)
+    raise NotImplementedError(f'Platform {sys.platform} not supported. Voice injector requires Windows.')
 
 
 class VoiceInjector:
@@ -253,7 +252,7 @@ class VoiceInjector:
         logger.info('\n\n[BYE] Voice Injector stopped!')
 
 
-def main():
+def main() -> None:
     """Entry point for voice injector."""
     import argparse
     import glob
@@ -276,9 +275,9 @@ def main():
         files = sorted(glob.glob(pattern), key=lambda x: Path(x).stat().st_mtime, reverse=True)
 
         if not files:
-            logger.error('No PyAgentVox output files found!')
-            logger.error('   Make sure PyAgentVox is running first.')
-            sys.exit(1)
+            raise FileNotFoundError(
+                'No PyAgentVox output files found. Make sure PyAgentVox is running first.'
+            )
 
         output_file = Path(files[0])
         logger.info(f'[FILE] Auto-detected: {output_file}')
@@ -293,17 +292,9 @@ def main():
             time.sleep(1)
         logger.info('  Capturing foreground window!\n')
 
-    try:
-        injector = VoiceInjector(output_file, args.window_title, args.use_foreground)
-        injector.run(args.interval)
-    except FileNotFoundError as e:
-        logger.error(f'{e}')
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f'Error: {e}')
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    # Let exceptions propagate - caller can handle them
+    injector = VoiceInjector(output_file, args.window_title, args.use_foreground)
+    injector.run(args.interval)
 
 
 if __name__ == '__main__':

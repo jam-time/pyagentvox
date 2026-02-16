@@ -57,3 +57,7 @@ uv.lock
 .mypy_cache/
 .coverage
 htmlcov/
+
+# AI
+CLAUDE.md
+.claude/

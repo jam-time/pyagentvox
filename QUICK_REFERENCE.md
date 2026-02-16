@@ -1,62 +1,84 @@
 # PyAgentVox Quick Reference
 
-## 🚀 Getting Started
+One-page cheat sheet for voice communication with Claude Code.
 
-### Using Skills (Recommended)
+---
+
+## 🚀 Quick Start
+
+### Skills (Recommended)
 ```bash
 /voice              # Start with default voice
 /voice michelle     # Start with Michelle voice
-/voice jenny        # Start with Jenny voice
+/voice jenny debug  # Jenny voice + debug logging
+/voice tts-only     # Voice output only (no mic)
 /voice-stop         # Stop voice chat
 ```
 
-### Direct Commands
+### Direct CLI
 ```bash
-# Test standalone
-python -m pyagentvox --debug
-
-# Try voice profiles
-python -m pyagentvox --profile michelle
-python -m pyagentvox --profile jenny
-
-# TTS-only mode
-python -m pyagentvox --tts-only
+python -m pyagentvox start              # Start with defaults
+python -m pyagentvox start --debug      # With debug logging
+python -m pyagentvox stop               # Stop running instance
+python -m pyagentvox status             # Check status
 ```
 
-## 🎤 Voice Commands & Behavior
+---
 
-| Command/Feature | Action |
-|---------|--------|
-| "stop listening" | Stops PyAgentVox |
-| Auto-pause (10 min) | STT pauses after 10 minutes idle |
-| Auto-resume (on TTS) | STT resumes when AI responds |
+## 📋 Subcommands
 
-## ⚙️ CLI Options
+| Command | Description |
+|---------|-------------|
+| `start` | Start PyAgentVox with options |
+| `stop` | Stop running instance |
+| `switch <profile>` | Switch voice profile on-the-fly |
+| `tts [on\|off]` | Enable/disable text-to-speech |
+| `stt [on\|off]` | Enable/disable speech recognition |
+| `modify <setting>` | Adjust pitch/speed at runtime |
+| `status` | Show running status |
 
-### Basic
-```bash
-python -m pyagentvox                    # Run with defaults
-python -m pyagentvox --debug            # Debug logging
-python -m pyagentvox --tts-only         # TTS only (no microphone)
-python -m pyagentvox --log-file vox.log # Write logs to file
-```
+---
 
-### Configuration
-```bash
-python -m pyagentvox --config my_config.yaml       # Use specific config
-python -m pyagentvox --profile michelle            # Load profile
-python -m pyagentvox --set "speed=15 pitch=5"      # Override values
-python -m pyagentvox --modify "speed=+5 pitch=-3"  # Modify values
-python -m pyagentvox --save                        # Save overrides
-```
+## 🎭 Skills Reference
 
-### Background Mode (Windows)
-```bash
-python -m pyagentvox --background --log-file vox.log
-taskkill /PID <pid>  # Stop
-```
+### `/voice [profile] [modes...]`
+Start voice communication. Combine profiles with modes:
+- **Profiles:** `michelle`, `jenny`, `emma`, `aria`, `ava`, `sonia`, `libby`
+- **Modes:** `debug`, `tts-only`, `custom`
+- **Examples:**
+  - `/voice michelle tts-only` - Michelle voice, no microphone
+  - `/voice jenny debug` - Jenny voice with debug logs
+
+### `/voice-stop`
+Stop PyAgentVox and clean up. Or say "stop listening".
+
+### `/voice-switch <profile>`
+Hot-swap voice profiles without restarting:
+- **Michelle** - Sweet, empathetic (debugging frustrations)
+- **Jenny** - Energetic, playful (celebrations)
+- **Emma** - Warm, nurturing (patient explanations)
+- **Aria** - Professional, confident (presentations)
+- **Ava** - Clear, precise (technical discussions)
+- **Sonia** - Calm, professional (focused work)
+- **Libby** - Friendly, approachable (collaboration)
+
+### `/tts-control [on|off]`
+Enable/disable text-to-speech output at runtime.
+
+### `/stt-control [on|off]`
+Enable/disable speech recognition at runtime.
+
+### `/voice-modify <setting>`
+Adjust voice settings on-the-fly:
+- **Global:** `pitch=+5`, `speed=-10`
+- **Per-emotion:** `neutral.pitch=+10`, `cheerful.speed=-5`
+- **All emotions:** `all.pitch=+3`, `all.speed=-15`
+
+---
 
 ## 🎭 Emotion Tags
+
+Control voice dynamically in Claude responses:
 
 | Tag | Voice Style |
 |-----|-------------|
@@ -68,62 +90,116 @@ taskkill /PID <pid>  # Stop
 | `[calm]` | Professional, relaxed |
 | `[focused]` | Concentrated, steady |
 
-**Usage in Claude responses:**
+**Usage:** `[excited] Bug fixed! [calm] Let me explain the solution...`
+
+---
+
+## ⚙️ Common CLI Patterns
+
+### Start with Options
+```bash
+# Basic
+python -m pyagentvox start --debug
+python -m pyagentvox start --tts-only
+python -m pyagentvox start --profile michelle
+
+# Configuration
+python -m pyagentvox start --config my_config.yaml
+python -m pyagentvox start --set "neutral.speed=+10 neutral.pitch=+5"
+python -m pyagentvox start --modify "speed=+5 pitch=-3"
+python -m pyagentvox start --save  # Save changes
+
+# Logging
+python -m pyagentvox start --log-file vox.log
+python -m pyagentvox start --background --log-file vox.log  # Windows only
 ```
-[excited] I found the bug! [calm] Let me explain the fix...
+
+### Runtime Control
+```bash
+# Switch profiles
+python -m pyagentvox switch michelle
+
+# Toggle features
+python -m pyagentvox tts off
+python -m pyagentvox stt on
+
+# Adjust voice
+python -m pyagentvox modify pitch=+5
+python -m pyagentvox modify neutral.speed=-10
+
+# Check status
+python -m pyagentvox status
+
+# Stop
+python -m pyagentvox stop
 ```
 
-## 🔊 Available Voice Profiles
-
-### Female Voices
-- `michelle` - Balanced, versatile
-- `jenny` - Energetic, upbeat
-- `emma` - Warm, caring
-- `aria` - Professional, bright
-- `ava` - Clear, precise
-
-### British Voices
-- `sonia` - Calm, professional
-- `libby` - Friendly
-- `maisie` - Young, bright
+---
 
 ## 📁 Temp Files
 
-PyAgentVox creates temp files for communication:
+PyAgentVox uses temp files for IPC:
 
 | File | Purpose |
 |------|---------|
-| `/tmp/agent_output_*.txt` | STT output (your speech) |
-| `/tmp/agent_input_*.txt` | TTS input (text to speak) |
-| `/tmp/pyagentvox_v2.pid` | Single-instance lock |
+| `%TEMP%\agent_output_*.txt` | STT output (your speech) |
+| `%TEMP%\agent_input_*.txt` | TTS input (text to speak) |
+| `%TEMP%\agent_profile_*.txt` | Profile switch control |
+| `%TEMP%\agent_tts_*.txt` | TTS enable/disable |
+| `%TEMP%\agent_stt_*.txt` | STT enable/disable |
+| `%TEMP%\agent_modify_*.txt` | Runtime voice adjustments |
+| `%TEMP%\pyagentvox_v2.pid` | Single-instance lock |
+
+**Monitor:** `dir %TEMP%\agent_*.txt` (Windows) or `ls /tmp/agent_*.txt` (Unix)
+
+---
 
 ## 🐛 Quick Troubleshooting
 
-### Already running error
+### Already Running
 ```bash
-kill $(cat /tmp/pyagentvox_v2.pid)
-rm /tmp/pyagentvox_v2.pid
+python -m pyagentvox stop
+# OR manually:
+kill $(cat /tmp/pyagentvox_v2.pid)  # Unix
+taskkill /PID <pid>                 # Windows
 ```
 
-### No audio output
-1. Check internet connection
-2. Verify temp file exists: `ls /tmp/agent_input_*.txt`
-3. Test manual write: `echo "Test" > /tmp/agent_input_*.txt`
+### No Audio Output
+1. Check internet connection (Edge TTS requires online)
+2. Verify temp file: `dir %TEMP%\agent_input_*.txt`
+3. Test manual write: `echo Test > %TEMP%\agent_input_*.txt`
+4. Try: `python -m pyagentvox tts on`
 
-### Speech not recognized
+### Speech Not Recognized
 1. Check microphone permissions
-2. Verify temp file exists: `ls /tmp/agent_output_*.txt`
-3. Try lower energy threshold in config
+2. Verify temp file: `dir %TEMP%\agent_output_*.txt`
+3. Lower energy threshold in config: `stt.energy_threshold: 2000`
+4. Try: `python -m pyagentvox stt on`
 
-### Multiple instances
+### Profile Not Switching
 ```bash
+python -m pyagentvox status  # Check current profile
+python -m pyagentvox switch michelle --debug
+# OR restart:
+python -m pyagentvox stop && python -m pyagentvox start --profile michelle
+```
+
+### Multiple Instances
+```bash
+# Windows
+tasklist | findstr python
+taskkill /F /PID <pid>
+
+# Unix
 pkill -f pyagentvox
 ```
+
+---
 
 ## ⚙️ Config File Quick Example
 
 ```yaml
-# Simple config (pyagentvox.yaml)
+# pyagentvox.yaml
 neutral:
   voice: "en-US-MichelleNeural"
   speed: "+10%"
@@ -134,7 +210,9 @@ cheerful:
   speed: "+15%"
   pitch: "+8Hz"
 
-# Profiles
+stt:
+  energy_threshold: 4000  # Lower = more sensitive
+
 profiles:
   my_profile:
     neutral:
@@ -143,20 +221,25 @@ profiles:
       pitch: "+0Hz"
 ```
 
-## 📖 Full Documentation
-
-**For Users:**
-- **[SETUP.md](SETUP.md)** - Complete setup guide with architecture
-- **[USAGE.md](USAGE.md)** - Detailed CLI options and configuration
-- **[README.md](README.md)** - Overview and quick start
-
-**For AI Agents:**
-- **[AGENTS.md](AGENTS.md)** - Guide for AI assistants setting up voice for their humans
+---
 
 ## 💡 Pro Tips
 
-1. Start with `--debug` to see what's happening
-2. Use `--profile` instead of manual voice config
-3. Test standalone before integrating with Claude
-4. Use `--tts-only` when working remotely
-5. Check `/tmp/agent_*.txt` files when debugging
+1. **Debug mode is your friend:** `python -m pyagentvox start --debug` shows everything
+2. **Hot-swap profiles:** Use `/voice-switch` to match conversation mood
+3. **Test standalone first:** `python -m pyagentvox start --debug` before integrating
+4. **Remote work:** Use `--tts-only` when you can't use a microphone
+5. **Monitor temp files:** Check `%TEMP%\agent_*.txt` when debugging
+6. **Adjust sensitivity:** Lower `stt.energy_threshold` for quieter environments
+7. **Combine modes:** `/voice michelle tts-only debug` for maximum control
+8. **Save your tweaks:** Use `--save` after `--set` or `--modify` to persist changes
+
+---
+
+## 📖 More Documentation
+
+- **[README.md](README.md)** - Project overview and quick start
+- **[SETUP.md](SETUP.md)** - Complete setup guide with architecture
+- **[USAGE.md](USAGE.md)** - Detailed CLI options and configuration
+- **[AGENTS.md](AGENTS.md)** - Guide for AI assistants
+- **[CLAUDE.md](CLAUDE.md)** - Project instructions and code style

@@ -1,297 +1,273 @@
-# PyAgentVox Configuration - Voice-Specific Profiles
-# Default uses mixed voices, profiles use single voice with emotion tuning
+# PyAgentVox Configuration
 
 # Speech Recognition Settings
 stt:
-  energy_threshold: 4000  # Microphone sensitivity (lower = more sensitive)
-                          # Typical range: 300-4000
+  energy_threshold: 2000  # Microphone sensitivity (lower = more sensitive)
+                          # Typical range: 300-4000 (using 2000 for better pickup)
                           # Adjust if mic is too sensitive or not picking up speech
 
-# Default Configuration - Mixed voices optimized per emotion
+# Optional description for the default profile (shown to Claude when voice is active)
+description: "Fun, energetic, and playful. A great positive voice."
+
+# Default Configuration - Ava voice with emotion tuning
 neutral:
-  voice: "en-US-MichelleNeural"
+  voice: "en-US-AvaNeural"
   speed: "+10%"
-  pitch: "+5Hz"
+  pitch: "+20Hz"
 
 cheerful:
-  voice: "en-US-JennyNeural"
+  voice: "en-US-AvaNeural"
   speed: "+18%"
-  pitch: "+12Hz"
+  pitch: "+23Hz"
 
 excited:
-  voice: "en-US-JennyNeural"
+  voice: "en-US-AvaNeural"
   speed: "+25%"
-  pitch: "+15Hz"
+  pitch: "+25Hz"
 
 empathetic:
-  voice: "en-US-EmmaNeural"
+  voice: "en-US-AvaNeural"
   speed: "+0%"
-  pitch: "+3Hz"
+  pitch: "+18Hz"
 
 warm:
-  voice: "en-US-EmmaNeural"
+  voice: "en-US-AvaNeural"
   speed: "+5%"
-  pitch: "+8Hz"
+  pitch: "+22Hz"
 
 calm:
-  voice: "en-US-AriaNeural"
+  voice: "en-US-AvaNeural"
   speed: "+0%"
-  pitch: "+3Hz"
+  pitch: "+18Hz"
 
 focused:
   voice: "en-US-AvaNeural"
   speed: "+8%"
-  pitch: "+0Hz"
+  pitch: "+20Hz"
 
-# ✨ Single-Voice Profiles
 # Use with: python -m pyagentvox --profile michelle
 profiles:
-  # Michelle - Balanced, versatile voice
   michelle:
+    description: "Sweet, empathetic, and caring - perfect for difficult moments and debugging frustrations"
     neutral:
       voice: "en-US-MichelleNeural"
       speed: "+10%"
-      pitch: "+10Hz"     # Increased from +5Hz
+      pitch: "+15Hz"
     cheerful:
       voice: "en-US-MichelleNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+18Hz"
     excited:
       voice: "en-US-MichelleNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+20Hz"
     empathetic:
       voice: "en-US-MichelleNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+13Hz"
     warm:
       voice: "en-US-MichelleNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+17Hz"
     calm:
       voice: "en-US-MichelleNeural"
       speed: "+0%"
-      pitch: "+3Hz"      # Increased from -5Hz
+      pitch: "+13Hz"
     focused:
       voice: "en-US-MichelleNeural"
       speed: "+8%"
-      pitch: "+5Hz"
+      pitch: "+15Hz"
 
-  # Jenny - Energetic, upbeat voice
+  # Jenny - Energetic, upbeat voice (base pitch: 20Hz)
   jenny:
+    description: "Somewhat energetic, and somewhat caring. A happy medium between playful and empathetic."
     neutral:
       voice: "en-US-JennyNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+20Hz"
     cheerful:
       voice: "en-US-JennyNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+23Hz"
     excited:
       voice: "en-US-JennyNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+25Hz"
     empathetic:
       voice: "en-US-JennyNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     warm:
       voice: "en-US-JennyNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+22Hz"
     calm:
       voice: "en-US-JennyNeural"
       speed: "+0%"
-      pitch: "+3Hz"      # Increased from -5Hz
+      pitch: "+18Hz"
     focused:
       voice: "en-US-JennyNeural"
       speed: "+8%"
-      pitch: "+0Hz"
+      pitch: "+20Hz"
 
-  # Emma - Warm, caring voice
+  # Emma - Warm, caring voice (base pitch: 20Hz)
   emma:
+    description: "Warm, nurturing, and understanding - ideal for patient explanations and learning"
     neutral:
       voice: "en-US-EmmaNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+20Hz"
     cheerful:
       voice: "en-US-EmmaNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+23Hz"
     excited:
       voice: "en-US-EmmaNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+25Hz"
     empathetic:
       voice: "en-US-EmmaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     warm:
       voice: "en-US-EmmaNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+22Hz"
     calm:
       voice: "en-US-EmmaNeural"
       speed: "+0%"
-      pitch: "-5Hz"
+      pitch: "+18Hz"
     focused:
       voice: "en-US-EmmaNeural"
       speed: "+8%"
-      pitch: "+0Hz"
+      pitch: "+20Hz"
 
-  # Aria - Professional, bright voice
+  # Aria - Professional, bright voice (base pitch: 15Hz)
   aria:
+    description: "Average voice; it doesn't lean too far in any particular direction."
     neutral:
       voice: "en-US-AriaNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+15Hz"
     cheerful:
       voice: "en-US-AriaNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+18Hz"
     excited:
       voice: "en-US-AriaNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+20Hz"
     empathetic:
       voice: "en-US-AriaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+13Hz"
     warm:
       voice: "en-US-AriaNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+17Hz"
     calm:
       voice: "en-US-AriaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+13Hz"
     focused:
       voice: "en-US-AriaNeural"
       speed: "+8%"
-      pitch: "+0Hz"
+      pitch: "+15Hz"
 
-  # Ava - Clear, precise voice
+  # Ava - Clear, precise voice (base pitch: 20Hz)
   ava:
+    description: "Fun, energetic, and playful. A great positive voice."
     neutral:
       voice: "en-US-AvaNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+20Hz"
     cheerful:
       voice: "en-US-AvaNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+23Hz"
     excited:
       voice: "en-US-AvaNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+25Hz"
     empathetic:
       voice: "en-US-AvaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     warm:
       voice: "en-US-AvaNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+22Hz"
     calm:
       voice: "en-US-AvaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     focused:
       voice: "en-US-AvaNeural"
       speed: "+8%"
-      pitch: "+0Hz"
+      pitch: "+20Hz"
 
   # ===== British Voices =====
 
-  # Sonia - British, calm professional
+  # Sonia - British, calm professional (base pitch: 20Hz)
   sonia:
+    description: "Formal British voice. Sounds like an AI James Bond would use."
     neutral:
       voice: "en-GB-SoniaNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+20Hz"
     cheerful:
       voice: "en-GB-SoniaNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+23Hz"
     excited:
       voice: "en-GB-SoniaNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+25Hz"
     empathetic:
       voice: "en-GB-SoniaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     warm:
       voice: "en-GB-SoniaNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+22Hz"
     calm:
       voice: "en-GB-SoniaNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+18Hz"
     focused:
       voice: "en-GB-SoniaNeural"
       speed: "+8%"
-      pitch: "+0Hz"
+      pitch: "+20Hz"
 
-  # Libby - British, friendly
+  # Libby - British, friendly (base pitch: 15Hz)
   libby:
+    description: "Friendly and casual British voice."
     neutral:
       voice: "en-GB-LibbyNeural"
       speed: "+10%"
-      pitch: "+5Hz"
+      pitch: "+15Hz"
     cheerful:
       voice: "en-GB-LibbyNeural"
       speed: "+18%"
-      pitch: "+12Hz"
+      pitch: "+18Hz"
     excited:
       voice: "en-GB-LibbyNeural"
       speed: "+25%"
-      pitch: "+15Hz"
+      pitch: "+20Hz"
     empathetic:
       voice: "en-GB-LibbyNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+13Hz"
     warm:
       voice: "en-GB-LibbyNeural"
       speed: "+5%"
-      pitch: "+8Hz"
+      pitch: "+17Hz"
     calm:
       voice: "en-GB-LibbyNeural"
       speed: "+0%"
-      pitch: "+3Hz"
+      pitch: "+13Hz"
     focused:
       voice: "en-GB-LibbyNeural"
       speed: "+8%"
-      pitch: "+0Hz"
-
-  # Maisie - British, young
-  maisie:
-    neutral:
-      voice: "en-GB-MaisieNeural"
-      speed: "+10%"
-      pitch: "+5Hz"
-    cheerful:
-      voice: "en-GB-MaisieNeural"
-      speed: "+18%"
-      pitch: "+12Hz"
-    excited:
-      voice: "en-GB-MaisieNeural"
-      speed: "+25%"
       pitch: "+15Hz"
-    empathetic:
-      voice: "en-GB-MaisieNeural"
-      speed: "+0%"
-      pitch: "+3Hz"
-    warm:
-      voice: "en-GB-MaisieNeural"
-      speed: "+5%"
-      pitch: "+8Hz"
-    calm:
-      voice: "en-GB-MaisieNeural"
-      speed: "+0%"
-      pitch: "+3Hz"
-    focused:
-      voice: "en-GB-MaisieNeural"
-      speed: "+8%"
-      pitch: "+0Hz"

@@ -27,6 +27,7 @@ Author:
 import asyncio
 import atexit
 import contextlib
+import hashlib
 import logging
 import os
 import psutil
@@ -82,13 +83,75 @@ if sys.platform == 'win32':
 logger = logging.getLogger('pyagentvox')
 
 
+def _find_conversation_file() -> Path | None:
+    """Find the Claude Code conversation file for per-window locking.
+
+    Returns:
+        Path to conversation file, or None if not found
+    """
+    # Check environment variable first
+    if 'CLAUDE_CONVERSATION_FILE' in os.environ:
+        conv_file = Path(os.environ['CLAUDE_CONVERSATION_FILE'])
+        if conv_file.exists():
+            return conv_file
+
+    # Common conversation file locations
+    search_paths = []
+
+    # All platforms: ~/.claude/projects/<hash>/*.jsonl
+    home = Path.home()
+    search_paths.append(home / '.claude' / 'projects')
+
+    # Also check current directory
+    search_paths.append(Path.cwd() / '.claude' / 'projects')
+
+    # Find most recent conversation file (exclude subagent files)
+    latest_file = None
+    latest_time = 0.0
+
+    for search_path in search_paths:
+        if not search_path.exists():
+            continue
+
+        # Search all subdirectories for .jsonl files, excluding subagents
+        for jsonl_file in search_path.rglob('*.jsonl'):
+            # Skip subagent files
+            if 'subagents' in str(jsonl_file):
+                continue
+
+            mtime = jsonl_file.stat().st_mtime
+            if mtime > latest_time:
+                latest_time = mtime
+                latest_file = jsonl_file
+
+    return latest_file
+
+
+def _get_lock_id() -> str:
+    """Get unique lock ID for this Claude Code window.
+
+    Uses conversation file path hash, falls back to 'global'.
+
+    Returns:
+        Lock ID string (8-char hash or 'global')
+    """
+    conv_file = _find_conversation_file()
+    if conv_file is None:
+        return 'global'
+
+    # Create short hash of conversation file path
+    path_hash = hashlib.md5(str(conv_file).encode()).hexdigest()[:8]
+    return path_hash
+
+
 class PyAgentVox:
     """Voice communication system with TTS output and speech recognition input."""
 
     @staticmethod
     def _get_pid_file_path() -> Path:
-        """Get the path to the PID lock file."""
-        return Path(tempfile.gettempdir()) / 'pyagentvox_v2.pid'
+        """Get the path to the PID lock file (per-window)."""
+        lock_id = _get_lock_id()
+        return Path(tempfile.gettempdir()) / f'pyagentvox_{lock_id}.pid'
 
     def _release_lock(self) -> None:
         """Release the lock file when shutting down."""
@@ -182,12 +245,19 @@ class PyAgentVox:
 
         raise RuntimeError('Failed to create lock file after multiple attempts')
 
-    def __init__(self, config_dict: Optional[dict[str, Any]] = None, config_path: Optional[str] = None, tts_only: bool = False) -> None:
+    def __init__(
+        self,
+        config_dict: Optional[dict[str, Any]] = None,
+        config_path: Optional[str] = None,
+        profile_name: Optional[str] = None,
+        tts_only: bool = False
+    ) -> None:
         """Initialize PyAgentVox with configuration.
 
         Args:
             config_dict: Optional config dictionary (overrides file-based config)
             config_path: Optional path to config file (JSON or YAML)
+            profile_name: Optional profile name (for voice instructions)
             tts_only: If True, only enable TTS output (disable speech recognition)
 
         Raises:
@@ -195,8 +265,16 @@ class PyAgentVox:
         """
         logger.info('Initializing PyAgentVox...')
 
-        # Store TTS-only mode
+        # Store profile name and TTS-only mode
+        self.profile_name = profile_name
         self.tts_only = tts_only
+
+        # Runtime control flags
+        self.tts_enabled = True
+        self.stt_enabled = not tts_only
+
+        # Profile hot-swap queue (processes switches in order)
+        self.profile_switch_queue: asyncio.Queue[str] = asyncio.Queue()
 
         # Check for existing instance and create lock file
         self.pid_file = self._check_and_create_lock()
@@ -273,7 +351,11 @@ class PyAgentVox:
         if instructions_path:
             instructions_path = Path(instructions_path)
 
-        success, refresh_message = instruction.inject_voice_instructions(instructions_path)
+        success, refresh_message = instruction.inject_voice_instructions(
+            instructions_path,
+            config=self.config,
+            profile_name=self.profile_name
+        )
         if success and refresh_message:
             logger.info(f'\n{refresh_message}\n')
 
@@ -291,6 +373,14 @@ class PyAgentVox:
         logger.info(f'  {self.input_file.name}')
         logger.info('\nOutput file (your spoken words appear here):')
         logger.info(f'  {self.output_file.name}')
+        logger.info('\nRuntime Controls:')
+        profile_file = Path(tempfile.gettempdir()) / f'agent_profile_{os.getpid()}.txt'
+        control_file = Path(tempfile.gettempdir()) / f'agent_control_{os.getpid()}.txt'
+        modify_file = Path(tempfile.gettempdir()) / f'agent_modify_{os.getpid()}.txt'
+        logger.info(f'  Profile: echo <profile> > {profile_file}')
+        logger.info(f'  TTS/STT: echo tts:on|off > {control_file}')
+        logger.info(f'  Modify:  echo pitch=+5 > {modify_file}')
+        logger.info(f'  Or use: python -m pyagentvox switch/tts/stt/modify <args>')
         logger.info('\nBackground services:')
         logger.info('  - Voice Injector: Sends your speech to Claude Code')
         logger.info('  - TTS Monitor: Sends Claude responses to voice output')
@@ -462,7 +552,7 @@ class PyAgentVox:
             text: Text to speak
 
         Returns:
-            Path to generated MP3 file, or None if generation failed
+            Path to generated audio file, or None if generation failed
         """
         if not text.strip():
             return None
@@ -548,22 +638,26 @@ class PyAgentVox:
         segments = self._parse_segments(text)
         logger.info(f'[TTS] Generating {len(segments)} segment(s) in parallel...')
 
-        # OPTIMIZATION: Generate all TTS files in parallel (eliminates delays!)
+        # Generate all audio files in parallel for faster playback
         generation_tasks = [
             self._generate_tts_file(emotion, segment_text)
             for emotion, segment_text in segments
         ]
-        audio_files = await asyncio.gather(*generation_tasks)
-        logger.info(f'[TTS] Generated {len(audio_files)} files, playing sequentially...')
+        audio_paths = await asyncio.gather(*generation_tasks)
 
-        # Play each file sequentially - TTS engine handles pauses naturally
-        for idx, (audio_path, (emotion, segment_text)) in enumerate(zip(audio_files, segments)):
+        # Play all segments sequentially (no generation delays between!)
+        logger.info(f'[TTS] Playing {len(segments)} segment(s) sequentially...')
+        for idx, (audio_path, (emotion, segment_text)) in enumerate(zip(audio_paths, segments)):
             if audio_path:
                 logger.debug(f'[TTS] Playing segment {idx+1}/{len(segments)}')
                 await self._play_audio_file(audio_path, len(segment_text))
-                self._cleanup_audio_file(audio_path)
             else:
                 logger.warning(f'[TTS] Skipping segment {idx+1} (generation failed)')
+
+        # Cleanup all audio files after playback
+        for audio_path in audio_paths:
+            if audio_path:
+                self._cleanup_audio_file(audio_path)
 
     async def _process_tts_queue(self) -> None:
         """Process TTS messages from queue sequentially."""
@@ -571,13 +665,28 @@ class PyAgentVox:
 
         while self.running:
             try:
+                # Check if profile switch is queued (process all pending switches)
+                try:
+                    while True:
+                        profile_name = self.profile_switch_queue.get_nowait()
+                        logger.info(f'[PROFILE] Processing profile switch: {profile_name}')
+                        await self._reload_profile(profile_name)
+                        self.profile_switch_queue.task_done()
+                except asyncio.QueueEmpty:
+                    pass  # No more profile switches to process
+
                 try:
                     text = await asyncio.wait_for(self.tts_queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
 
-                logger.info(f'[TTS] Speaking: {text[:60]}...')
-                await self._speak_text(text)
+                # Check if TTS is enabled before speaking
+                if self.tts_enabled:
+                    logger.info(f'[TTS] Speaking: {text[:60]}...')
+                    await self._speak_text(text)
+                else:
+                    logger.debug(f'[TTS] Skipped (TTS disabled): {text[:60]}...')
+
                 self.tts_queue.task_done()
 
                 # Resume STT after TTS activity (if paused and not in TTS-only mode)
@@ -622,6 +731,302 @@ class PyAgentVox:
 
             await asyncio.sleep(0.4)  # Reduced from 0.5 since we added delays above
 
+    async def _watch_profile_control(self) -> None:
+        """Watch control file for profile hot-swap requests."""
+        control_file = Path(tempfile.gettempdir()) / f'agent_profile_{os.getpid()}.txt'
+        last_mtime = 0.0
+
+        logger.info('Started watching for profile hot-swap requests...')
+        logger.debug(f'Control file: {control_file}')
+
+        while self.running:
+            try:
+                if control_file.exists():
+                    current_mtime = control_file.stat().st_mtime
+
+                    if current_mtime != last_mtime:
+                        last_mtime = current_mtime
+
+                        # Wait for write to complete
+                        await asyncio.sleep(0.1)
+
+                        # Read profile name
+                        profile_name = control_file.read_text(encoding='utf-8').strip()
+
+                        if profile_name:
+                            logger.info(f'[PROFILE] Hot-swap request: {profile_name}')
+
+                            # Add to queue (will be processed in order)
+                            await self.profile_switch_queue.put(profile_name)
+                            logger.debug(f'[PROFILE] Switch queued (position: {self.profile_switch_queue.qsize()})')
+
+                        # Delete control file after processing
+                        try:
+                            control_file.unlink()
+                            logger.debug('[PROFILE] Control file removed')
+                        except OSError as e:
+                            logger.warning(f'Could not remove control file: {e}')
+
+            except Exception as e:
+                logger.error(f'Error watching profile control file: {e}')
+
+            await asyncio.sleep(0.5)
+
+    async def _watch_control_file(self) -> None:
+        """Watch control file for TTS/STT on/off commands.
+
+        File format: agent_control_{pid}.txt
+        Content: "tts:on", "tts:off", "stt:on", "stt:off"
+        """
+        control_file = Path(tempfile.gettempdir()) / f'agent_control_{os.getpid()}.txt'
+        last_mtime = 0.0
+
+        logger.info('Started watching for TTS/STT control commands...')
+        logger.debug(f'Control file: {control_file}')
+
+        while self.running:
+            try:
+                if control_file.exists():
+                    current_mtime = control_file.stat().st_mtime
+
+                    if current_mtime != last_mtime:
+                        last_mtime = current_mtime
+
+                        # Wait for write to complete
+                        await asyncio.sleep(0.1)
+
+                        # Read command
+                        command = control_file.read_text(encoding='utf-8').strip()
+
+                        if command == 'tts:off':
+                            self.tts_enabled = False
+                            logger.info('[CONTROL] TTS disabled')
+                        elif command == 'tts:on':
+                            self.tts_enabled = True
+                            logger.info('[CONTROL] TTS enabled')
+                        elif command == 'stt:off':
+                            self.stt_enabled = False
+                            logger.info('[CONTROL] STT disabled')
+                        elif command == 'stt:on':
+                            self.stt_enabled = True
+                            logger.info('[CONTROL] STT enabled')
+                        else:
+                            logger.warning(f'[CONTROL] Unknown command: {command}')
+
+                        # Delete control file after processing
+                        try:
+                            control_file.unlink()
+                            logger.debug('[CONTROL] Control file removed')
+                        except OSError as e:
+                            logger.warning(f'Could not remove control file: {e}')
+
+            except Exception as e:
+                logger.error(f'Error watching control file: {e}')
+
+            await asyncio.sleep(0.5)
+
+    async def _watch_modify_file(self) -> None:
+        """Watch modify file for runtime voice setting changes.
+
+        File format: agent_modify_{pid}.txt
+        Content: "pitch=+5", "neutral.speed=-10", "all.pitch=+3"
+        """
+        modify_file = Path(tempfile.gettempdir()) / f'agent_modify_{os.getpid()}.txt'
+        last_mtime = 0.0
+
+        logger.info('Started watching for voice modification commands...')
+        logger.debug(f'Modify file: {modify_file}')
+
+        while self.running:
+            try:
+                if modify_file.exists():
+                    current_mtime = modify_file.stat().st_mtime
+
+                    if current_mtime != last_mtime:
+                        last_mtime = current_mtime
+
+                        # Wait for write to complete
+                        await asyncio.sleep(0.1)
+
+                        # Read modification command
+                        modification = modify_file.read_text(encoding='utf-8').strip()
+
+                        if modification:
+                            logger.info(f'[MODIFY] Processing: {modification}')
+                            await self._apply_modification(modification)
+
+                        # Delete modify file after processing
+                        try:
+                            modify_file.unlink()
+                            logger.debug('[MODIFY] Modify file removed')
+                        except OSError as e:
+                            logger.warning(f'Could not remove modify file: {e}')
+
+            except Exception as e:
+                logger.error(f'Error watching modify file: {e}')
+
+            await asyncio.sleep(0.5)
+
+    async def _apply_modification(self, modification: str) -> None:
+        """Apply runtime voice modification.
+
+        Supports:
+        - Global: pitch=+5, speed=-10
+        - Emotion-specific: neutral.pitch=+10, cheerful.speed=-5
+        - All emotions: all.pitch=+3
+        """
+        try:
+            # Parse modification: "key=value" or "emotion.key=value"
+            if '=' not in modification:
+                logger.error(f'[MODIFY] Invalid format (missing =): {modification}')
+                return
+
+            key, value = modification.split('=', 1)
+
+            if '.' in key:
+                # Emotion-specific: neutral.pitch=+10
+                emotion, setting = key.split('.', 1)
+
+                if emotion == 'all':
+                    # Apply to all emotions
+                    emotions = ['neutral', 'cheerful', 'excited', 'empathetic', 'warm', 'calm', 'focused']
+                else:
+                    emotions = [emotion]
+
+                for emo in emotions:
+                    if emo in self.emotion_voices:
+                        voice, speed, pitch = self.emotion_voices[emo]
+
+                        if setting == 'pitch':
+                            # Parse +5Hz or -10Hz
+                            pitch = self._adjust_value(pitch, value)
+                        elif setting == 'speed':
+                            # Parse +10% or -5%
+                            speed = self._adjust_value(speed, value)
+                        elif setting == 'voice':
+                            # Direct replacement
+                            voice = value
+
+                        self.emotion_voices[emo] = (voice, speed, pitch)
+                        logger.info(f'[MODIFY] {emo}: {setting}={value}')
+                    else:
+                        logger.warning(f'[MODIFY] Unknown emotion: {emo}')
+            else:
+                # Global modification: pitch=+5 (applies to all)
+                emotions = ['neutral', 'cheerful', 'excited', 'empathetic', 'warm', 'calm', 'focused']
+                setting = key
+
+                for emo in emotions:
+                    if emo in self.emotion_voices:
+                        voice, speed, pitch = self.emotion_voices[emo]
+
+                        if setting == 'pitch':
+                            pitch = self._adjust_value(pitch, value)
+                        elif setting == 'speed':
+                            speed = self._adjust_value(speed, value)
+
+                        self.emotion_voices[emo] = (voice, speed, pitch)
+
+                logger.info(f'[MODIFY] All emotions: {setting}={value}')
+
+            # Update default voice settings
+            if 'neutral' in self.emotion_voices:
+                self.voice, self.rate, self.pitch = self.emotion_voices['neutral']
+
+        except Exception as e:
+            logger.error(f'[MODIFY] Error applying modification: {e}')
+            logger.debug(f'Error details: {traceback.format_exc()}')
+
+    def _adjust_value(self, current: str, modifier: str) -> str:
+        """Adjust a value by a modifier.
+
+        Examples:
+        - _adjust_value('+20Hz', '+5Hz') → '+25Hz'
+        - _adjust_value('+10%', '-5%') → '+5%'
+        """
+        # Extract number from current value (including negative sign)
+        current_match = re.search(r'[+-]?\d+', current)
+        if not current_match:
+            logger.warning(f'[MODIFY] Could not parse current value: {current}')
+            return current
+
+        current_num = int(current_match.group())
+
+        # Extract number and sign from modifier
+        modifier_match = re.search(r'([+-]?\d+)', modifier)
+        if not modifier_match:
+            logger.warning(f'[MODIFY] Could not parse modifier: {modifier}')
+            return current
+
+        modifier_num = int(modifier_match.group())
+
+        # Calculate new value
+        new_num = current_num + modifier_num
+
+        # Preserve units (Hz or %)
+        unit = 'Hz' if 'Hz' in current else '%'
+        sign = '+' if new_num >= 0 else ''
+
+        return f'{sign}{new_num}{unit}'
+
+    async def _reload_profile(self, profile_name: str) -> None:
+        """Reload configuration with new profile and reinitialize TTS engine.
+
+        Args:
+            profile_name: Name of profile to load from config
+        """
+        try:
+            logger.info(f'[PROFILE] Reloading profile: {profile_name}')
+
+            # Load new config with profile
+            new_config, _ = config.load_config(
+                config_path=str(self.config_file) if self.config_file else None,
+                profile=profile_name
+            )
+
+            # Update config and profile name
+            self.config = new_config
+            self.profile_name = profile_name
+
+            # Re-inject voice instructions with new profile
+            instructions_path = self.config.get('instructions_path')
+            if instructions_path:
+                instructions_path = Path(instructions_path)
+            instruction.inject_voice_instructions(
+                instructions_path,
+                config=self.config,
+                profile_name=self.profile_name
+            )
+
+            # Reinitialize emotion voices with new profile
+            self.emotion_voices = {}
+            standard_emotions = ['neutral', 'cheerful', 'excited', 'empathetic', 'warm', 'calm', 'focused']
+
+            for emotion in standard_emotions:
+                if emotion in self.config and isinstance(self.config[emotion], dict):
+                    settings = self.config[emotion]
+                    voice = settings.get('voice', 'en-US-MichelleNeural')
+                    speed = settings.get('speed', '+10%')
+                    pitch = settings.get('pitch', '+10Hz')
+                    self.emotion_voices[emotion] = (voice, speed, pitch)
+
+            self.voice = self.emotion_voices.get('neutral', ('en-US-MichelleNeural', '+10%', '+10Hz'))[0]
+            self.rate = self.emotion_voices.get('neutral', ('en-US-MichelleNeural', '+10%', '+10Hz'))[1]
+            self.pitch = self.emotion_voices.get('neutral', ('en-US-MichelleNeural', '+10%', '+10Hz'))[2]
+
+            # Log voice configuration
+            logger.info(f'[PROFILE] ✓ Successfully switched to profile: {profile_name}')
+            logger.info(f'[PROFILE] Voice config:')
+            for emotion in standard_emotions:
+                if emotion in self.emotion_voices:
+                    voice, speed, pitch = self.emotion_voices[emotion]
+                    logger.info(f'  [{emotion}] {voice} @ {speed}, {pitch}')
+
+        except Exception as e:
+            logger.error(f'[PROFILE] Failed to reload profile: {e}')
+            logger.error('[PROFILE] Keeping current profile')
+            logger.debug(f'Error details: {traceback.format_exc()}')
+
     def _should_pause_stt(self) -> bool:
         """Check if STT should pause due to inactivity."""
         if self.stt_paused:
@@ -663,6 +1068,11 @@ class PyAgentVox:
         while self.running:
             if not self.running:
                 break
+
+            # Check if STT is disabled via runtime control
+            if not self.stt_enabled:
+                time.sleep(1)  # Check again in 1 second
+                continue
 
             # Check if STT should pause due to inactivity
             if self._should_pause_stt():
@@ -767,9 +1177,12 @@ class PyAgentVox:
             logger.info('[STT] Speech recognition disabled (TTS-only mode)\n')
 
         try:
-            # Run both file watcher and queue processor concurrently
+            # Run all watchers and queue processor concurrently
             await asyncio.gather(
                 self._watch_input_file(),
+                self._watch_profile_control(),
+                self._watch_control_file(),      # TTS/STT control
+                self._watch_modify_file(),       # Voice modifications
                 self._process_tts_queue()
             )
         except KeyboardInterrupt:
@@ -838,7 +1251,7 @@ def run(
 
     agent_vox = None
     try:
-        agent_vox = PyAgentVox(config_dict=loaded_config, tts_only=tts_only)
+        agent_vox = PyAgentVox(config_dict=loaded_config, profile_name=profile, tts_only=tts_only)
         asyncio.run(agent_vox.run())
     except KeyboardInterrupt:
         logger.info('\n\nGoodbye!')

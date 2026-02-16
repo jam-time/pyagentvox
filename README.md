@@ -7,18 +7,28 @@
 
 ## ✨ Features
 
+### 🚀 The Wow Factor
+- 🎚️ **Runtime Controls** - Toggle TTS/STT, switch profiles, modify voices **without restarting**
+- 🖥️ **Multi-Instance Support** - Run multiple Claude Code windows with **independent voice profiles**
+- 🪟 **Background Typing** - Voice input works **without stealing focus** from your current window
+- 📡 **CLI Subcommands** - Clean command interface: `start`, `stop`, `switch`, `tts`, `stt`, `modify`, `status`
+
+### 🎭 Voice & Emotion
 - 🎤 **Voice Input** - Speak naturally and your words are sent to the AI
 - 🔊 **Voice Output** - AI responses are spoken aloud with natural voices
 - 🎭 **Emotion Support** - Different voices for different emotions (cheerful, calm, empathetic, etc.)
 - 🌍 **Multiple Voices** - Male and female voices in US and British English
+
+### ⚙️ Configuration & Control
 - ⚙️ **Highly Configurable** - JSON/YAML config with profiles and CLI overrides
-- 🔌 **Programmatic API** - Use as a library or CLI tool
-- 📦 **Easy Installation** - Install as Python package
 - 🎯 **Auto-Injection** - Automatically injects voice instructions into instruction files
 - 🛑 **Voice Commands** - Say "stop listening" to stop PyAgentVox
 - ⏸️ **Auto-Pause STT** - Speech recognition auto-pauses after 10 min idle, resumes on TTS
-- 🪟 **Background Typing** - Voice input works without stealing focus from your current window
-- 🔧 **Windows Support** - Voice injector using Windows messaging API
+
+### 🔧 Platform & Integration
+- 🔧 **Windows Support** - Voice injector using Windows messaging API (PostMessage, no focus stealing)
+- 🔌 **Programmatic API** - Use as a library or CLI tool
+- 📦 **Easy Installation** - Install as Python package
 
 ## 📦 Installation
 
@@ -56,32 +66,54 @@ pipwin install pyaudio
 ## 🚀 Quick Start
 
 ```bash
-# 1. Test standalone (speak and hear responses)
-python -m pyagentvox --debug
+# 1. Start PyAgentVox with default voice
+python -m pyagentvox start --debug
 
 # 2. Try different voice profiles
-python -m pyagentvox --profile michelle
-python -m pyagentvox --profile jenny
+python -m pyagentvox start --profile michelle
+python -m pyagentvox start --profile jenny
 
 # 3. Integrate with Claude Code (from your project directory)
 # Using skills (after Claude Code restart):
-/voice michelle
+/voice                    # Start with default profile
+/voice michelle           # Start with specific profile
+/voice-switch jenny       # Switch profiles at runtime
+/tts-control off          # Mute TTS output
+/stt-control off          # Disable voice input
+/voice-modify pitch=+5    # Adjust pitch on the fly
 
-# OR directly:
-python -m pyagentvox --profile michelle
+# 4. Direct CLI controls (while running)
+python -m pyagentvox switch jenny    # Hot-swap voice profile
+python -m pyagentvox tts off         # Mute TTS output
+python -m pyagentvox stt on          # Enable voice input
+python -m pyagentvox modify pitch=+5 # Tweak voice settings
+python -m pyagentvox status          # Check if running
+python -m pyagentvox stop            # Stop PyAgentVox
 ```
 
 ## 📖 Documentation
 
-**For Users:**
-- **[SETUP.md](SETUP.md)** - Complete setup guide with architecture overview
-- **[USAGE.md](USAGE.md)** - CLI options, configuration, and advanced features
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Cheat sheet for common commands
+### 📚 Main Documentation
 
-**For AI Agents:**
-- **[AGENTS.md](AGENTS.md)** - Guide for AI assistants to set up voice communication for their humans
+| Document | Description |
+|----------|-------------|
+| **[SETUP.md](SETUP.md)** | Complete setup guide with installation, architecture overview, and configuration |
+| **[USAGE.md](USAGE.md)** | CLI reference, runtime controls, configuration files, and advanced features |
+| **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** | One-page cheat sheet for common commands and skills |
+| **[AGENTS.md](AGENTS.md)** | Guide for AI assistants to implement voice communication in one session |
 
-**Quick Links:**
+### 🛠️ Development Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Contribution guidelines and development workflow |
+| **[CHANGELOG.md](CHANGELOG.md)** | Version history and release notes |
+| **[.claude/docs/style-guide.md](.claude/docs/style-guide.md)** | Code style standards (PEP 8, quotes, naming, docstrings) |
+| **[.claude/docs/patterns.md](.claude/docs/patterns.md)** | Common patterns (async, error handling, resource management) |
+| **[.claude/docs/testing.md](.claude/docs/testing.md)** | Testing standards, mocking, and assertions |
+
+### 🔗 Quick Links
+
 - [Configuration Guide](USAGE.md#configuration) - Config files, profiles, CLI overrides
 - [Available Voices](USAGE.md#available-voices) - All voices with descriptions
 - [Emotion Tags](USAGE.md#emotion-tags) - How to use `[cheerful]`, `[calm]`, etc.
@@ -94,8 +126,12 @@ PyAgentVox integrates with Claude Code through four coordinated components:
 
 1. **PyAgentVox Main** - Listens to microphone, speaks responses with emotion-based voices
 2. **TTS Monitor** - Watches Claude Code conversation files, sends responses to PyAgentVox
-3. **Voice Injector** - Types recognized speech into Claude Code window
+3. **Voice Injector** - Types recognized speech into Claude Code window (background typing, no focus stealing)
 4. **Instructions Manager** - Auto-injects voice tag documentation into CLAUDE.md
+
+**Multi-Instance Support:** Each Claude Code window gets its own PyAgentVox instance with per-window locking. Run multiple Claude Code windows with independent voice profiles simultaneously!
+
+**Runtime Controls:** Toggle TTS/STT, switch voice profiles, and modify voice settings without restarting using CLI subcommands or skills.
 
 See [SETUP.md](SETUP.md#architecture-overview) for detailed architecture diagrams.
 
@@ -112,6 +148,77 @@ Claude can use emotion tags to dynamically change voice:
 ```
 
 **How it works:** Text is split into segments at emotion tags. Each segment uses that emotion's voice settings (pitch, speed, voice actor). Tags are removed before speaking.
+
+## 🎚️ Runtime Controls
+
+Control PyAgentVox on the fly without restarting:
+
+### Voice Profile Switching
+
+```bash
+# Switch to a different voice profile instantly
+python -m pyagentvox switch jenny
+python -m pyagentvox switch male_voices
+
+# Or from Claude Code:
+/voice-switch jenny
+```
+
+**Use case:** Quickly change between different voice personas during a conversation!
+
+### TTS/STT Toggle
+
+```bash
+# Mute TTS output (silent mode - text only)
+python -m pyagentvox tts off
+
+# Disable voice input (keyboard only)
+python -m pyagentvox stt off
+
+# Or from Claude Code:
+/tts-control off
+/stt-control off
+```
+
+**Use case:** Silent mode for public spaces, or keyboard-only when microphone isn't available!
+
+### Voice Modification
+
+```bash
+# Adjust pitch/speed for all emotions
+python -m pyagentvox modify pitch=+5
+python -m pyagentvox modify speed=-10
+
+# Adjust specific emotions
+python -m pyagentvox modify neutral.pitch=+10
+python -m pyagentvox modify cheerful.speed=-5
+
+# Or from Claude Code:
+/voice-modify pitch=+5
+/voice-modify neutral.pitch=+10
+```
+
+**Use case:** Fine-tune voice to your preferences in real-time without config edits!
+
+## 🖥️ Multi-Instance Support
+
+Run multiple Claude Code windows with independent PyAgentVox instances!
+
+**Per-Window Locking:** Each Claude Code window gets its own PyAgentVox instance using window-specific PID files. No conflicts, no interference.
+
+```bash
+# Window 1: Michelle voice
+cd C:\projects\project1
+python -m pyagentvox start --profile michelle
+
+# Window 2: Guy voice (simultaneously!)
+cd C:\projects\project2
+python -m pyagentvox start --profile guy_voices
+```
+
+**Use case:** Work on multiple projects simultaneously with different voice profiles - one for coding, one for writing, each with their own personality!
+
+**Note:** Each instance monitors its own Claude Code window. Voice input is sent to the specific window that started PyAgentVox.
 
 ## ⚙️ Configuration
 
@@ -171,21 +278,75 @@ profiles:
 
 ## 🛠️ CLI Examples
 
+### Starting PyAgentVox
+
 ```bash
-# Use a specific config file
-pyagentvox --config my_config.yaml
+# Start with default voice
+python -m pyagentvox start
 
-# Load a profile
-pyagentvox --profile male_voices
+# Start with specific profile
+python -m pyagentvox start --profile michelle
 
-# Override specific values
-pyagentvox --set warm.pitch=+20Hz
+# Start with custom config
+python -m pyagentvox start --config my_config.yaml
+
+# Start with overrides
+python -m pyagentvox start --set warm.pitch=+20Hz
 
 # Save overrides to config
-pyagentvox --set warm.pitch=+20Hz --save
+python -m pyagentvox start --set warm.pitch=+20Hz --save
 
-# Debug mode
-pyagentvox --debug
+# TTS-only mode (no voice input)
+python -m pyagentvox start --tts-only
+
+# Debug mode with log file
+python -m pyagentvox start --debug --log-file pyagentvox.log
+```
+
+### Runtime Controls
+
+```bash
+# Check if PyAgentVox is running
+python -m pyagentvox status
+
+# Switch voice profile without restarting
+python -m pyagentvox switch jenny
+python -m pyagentvox switch male_voices
+
+# Toggle TTS output on/off
+python -m pyagentvox tts off    # Mute TTS (silent mode)
+python -m pyagentvox tts on     # Unmute TTS
+
+# Toggle STT (voice input) on/off
+python -m pyagentvox stt off    # Disable voice input
+python -m pyagentvox stt on     # Enable voice input
+
+# Modify voice settings at runtime
+python -m pyagentvox modify pitch=+5        # Global pitch adjustment
+python -m pyagentvox modify speed=-10       # Global speed adjustment
+python -m pyagentvox modify neutral.pitch=+10   # Emotion-specific
+python -m pyagentvox modify all.speed=-15   # All emotions explicitly
+
+# Stop PyAgentVox
+python -m pyagentvox stop
+```
+
+### Using Skills in Claude Code
+
+```bash
+# Start PyAgentVox
+/voice                      # Default profile
+/voice michelle             # Specific profile
+/voice tts-only            # TTS-only mode
+
+# Runtime controls
+/voice-switch jenny         # Switch profile
+/tts-control off           # Mute TTS
+/stt-control off           # Disable voice input
+/voice-modify pitch=+5     # Adjust voice
+
+# Stop PyAgentVox
+/voice-stop
 ```
 
 ## 📋 Requirements

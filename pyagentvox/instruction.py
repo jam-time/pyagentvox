@@ -33,8 +33,18 @@ logger = logging.getLogger('pyagentvox')
 VOICE_SECTION_MARKER_START = '<!-- PYAGENTVOX_START -->'
 VOICE_SECTION_MARKER_END = '<!-- PYAGENTVOX_END -->'
 
-VOICE_INSTRUCTIONS = '''
-<!-- PYAGENTVOX_START -->
+
+def _generate_voice_instructions(config: Optional[dict] = None, profile_name: Optional[str] = None) -> str:
+    """Generate voice instructions dynamically based on config and profile.
+
+    Args:
+        config: Configuration dictionary (optional)
+        profile_name: Active profile name (optional)
+
+    Returns:
+        Formatted voice instructions string with profile description if available
+    """
+    base_instructions = '''<!-- PYAGENTVOX_START -->
 # Voice Output Active 🎤
 
 Your responses are **spoken aloud**. Control voice with emotion tags anywhere in your message:
@@ -44,9 +54,43 @@ Your responses are **spoken aloud**. Control voice with emotion tags anywhere in
 **Usage:** Place tags to switch voice mid-message:
 - `Hello! [cheerful] Your code works! [calm] Let me explain why...`
 
-Tags are removed from spoken text. Multiple emotions = multiple voice segments.
-<!-- PYAGENTVOX_END -->
-'''
+Tags are removed from spoken text. Multiple emotions = multiple voice segments.'''
+
+    # Add profile information if available
+    profile_info = None
+    if config:
+        # Check for active profile description
+        if profile_name and 'profiles' in config and profile_name in config['profiles']:
+            profile_config = config['profiles'][profile_name]
+            if 'description' in profile_config:
+                profile_info = f"**Current Profile:** `{profile_name}` - {profile_config['description']}"
+        # Fall back to default profile description
+        elif 'description' in config and not profile_name:
+            profile_info = f"**Current Profile:** Default - {config['description']}"
+
+    # Add profile switching instructions
+    switch_instructions = '\n\n**Switch Profiles:** Use the `/voice-switch` skill to change voice profiles during conversations.'
+
+    # Add available profiles list if config has profiles
+    if config and 'profiles' in config:
+        profiles_list = '\n\n**Available Profiles:**'
+        # Add default profile
+        if 'description' in config:
+            profiles_list += f"\n- `default` - {config['description']}"
+        # Add named profiles
+        for name, profile_config in config.get('profiles', {}).items():
+            if isinstance(profile_config, dict) and 'description' in profile_config:
+                profiles_list += f"\n- `{name}` - {profile_config['description']}"
+        switch_instructions += profiles_list
+
+    # Assemble final instructions
+    instructions = base_instructions
+    if profile_info:
+        instructions += '\n\n' + profile_info
+    instructions += switch_instructions
+    instructions += '\n<!-- PYAGENTVOX_END -->'
+
+    return instructions
 
 
 def find_instructions_file(filename: str = 'CLAUDE.md') -> Optional[Path]:
@@ -90,11 +134,17 @@ def find_instructions_file(filename: str = 'CLAUDE.md') -> Optional[Path]:
     return None
 
 
-def inject_voice_instructions(instructions_path: Optional[Path] = None) -> tuple[bool, Optional[str]]:
+def inject_voice_instructions(
+    instructions_path: Optional[Path] = None,
+    config: Optional[dict] = None,
+    profile_name: Optional[str] = None
+) -> tuple[bool, Optional[str]]:
     """Inject voice instructions into instructions file.
 
     Args:
         instructions_path: Optional path to instructions file (auto-detects CLAUDE.md if None)
+        config: Optional configuration dictionary (for profile descriptions)
+        profile_name: Optional active profile name
 
     Returns:
         Tuple of (success: bool, message_to_agent: Optional[str])
@@ -113,11 +163,17 @@ def inject_voice_instructions(instructions_path: Optional[Path] = None) -> tuple
         logger.error(f'Error reading instructions file: {e}')
         return False, None
 
-    if VOICE_SECTION_MARKER_START in content:
-        logger.debug('Voice instructions already present')
-        return True, None
+    # Generate instructions dynamically
+    voice_instructions = _generate_voice_instructions(config, profile_name)
 
-    new_content = content.rstrip() + '\n\n' + VOICE_INSTRUCTIONS.strip() + '\n'
+    # If instructions already exist, update them instead of duplicating
+    if VOICE_SECTION_MARKER_START in content:
+        logger.debug('Updating existing voice instructions')
+        pattern = rf'{re.escape(VOICE_SECTION_MARKER_START)}.*?{re.escape(VOICE_SECTION_MARKER_END)}'
+        new_content = re.sub(pattern, voice_instructions, content, flags=re.DOTALL)
+    else:
+        logger.debug('Injecting new voice instructions')
+        new_content = content.rstrip() + '\n\n' + voice_instructions.strip() + '\n'
 
     try:
         instructions_path.write_text(new_content, encoding='utf-8')
