@@ -6,6 +6,79 @@ stt:
                           # Typical range: 300-4000 (using 2000 for better pickup)
                           # Adjust if mic is too sensitive or not picking up speech
 
+# Avatar Settings
+avatar:
+  enabled: true
+  directory: "~/.claude/luna"  # Path to avatar image directories (expands ~)
+  default_size: 300
+  cycle_interval: 4000  # Milliseconds between variant cycling
+
+  # Idle state timers (seconds of inactivity)
+  idle_states:
+    waiting: 0      # Immediate when no TTS is playing
+    bored: 120      # After 2 minutes of waiting
+    sleeping: 300   # After 5 minutes of waiting
+
+  # Interactive control settings
+  controls:
+    button_style:
+      bg: '#2a2a2a'       # Button background color
+      fg: 'white'         # Button text color
+      hover_bg: '#3a3a3a' # Button hover background
+    animation_speed: 30     # FPS for close animation
+    feedback_duration: 1000 # Milliseconds to show confirmation image
+
+  # Tag filtering (empty by default = show all images)
+  filters:
+    include_tags: []      # If set, only show images with these tags
+    exclude_tags: []      # Never show images with these tags
+    require_all_include: false  # If true, require ALL include tags; if false, require ANY
+
+  # Flip animation settings
+  animation:
+    flip_threshold: 0.5   # Animate if tags differ by >= 50% (0.0-1.0)
+    flip_duration: 300    # Milliseconds for full flip animation
+    flip_steps: 15        # Number of animation frames
+
+  # Explicit image registry (empty = use directory-based discovery for backward compat)
+  # Each entry has: path (relative to avatar.directory or absolute) and tags (list)
+  # At least one emotion tag required: cheerful, excited, calm, focused, warm, empathetic, neutral, etc.
+  # Custom tags allowed: outfit names, poses, moods, contexts, etc.
+  # Special tag 'control' marks images for interactive controls (excluded from normal emotion display)
+  images: []
+
+  # Emotion hierarchy: specific emotions fall back to generic ones if no images exist
+  # Format: specific_emotion: generic_fallback
+  emotion_hierarchy:
+    # Variants of excited
+    celebrating: excited
+    triumphant: excited
+    victory: excited
+
+    # Variants of focused
+    frustrated: focused
+    typing: focused
+    working: focused
+
+    # Variants of thinking
+    confused: thinking
+    pondering: thinking
+
+    # Variants of calm
+    exhausted: calm
+    tired: calm
+    peaceful: calm
+
+    # Variants of cheerful
+    explaining: cheerful
+    happy: cheerful
+    friendly: cheerful
+
+    # Variants of warm
+    caring: warm
+    supportive: warm
+    affectionate: warm
+
 # Optional description for the default profile (shown to Claude when voice is active)
 description: "Fun, energetic, and playful. A great positive voice."
 

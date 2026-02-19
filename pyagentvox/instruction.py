@@ -47,14 +47,66 @@ def _generate_voice_instructions(config: Optional[dict] = None, profile_name: Op
     base_instructions = '''<!-- PYAGENTVOX_START -->
 # Voice Output Active 🎤
 
-Your responses are **spoken aloud**. Control voice with emotion tags anywhere in your message:
+Your responses are **spoken aloud** and displayed as an animated avatar. Control voice with emotion tags anywhere in your message:
 
 **Available emotions:** `[neutral]` `[cheerful]` `[excited]` `[empathetic]` `[warm]` `[calm]` `[focused]`
 
 **Usage:** Place tags to switch voice mid-message:
 - `Hello! [cheerful] Your code works! [calm] Let me explain why...`
 
-Tags are removed from spoken text. Multiple emotions = multiple voice segments.'''
+Tags are removed from spoken text. Multiple emotions = multiple voice segments.
+
+**Avatar:** Luna's avatar displays your current emotion and automatically transitions to bored/sleeping states during long idle periods.
+
+## Avatar Tag System
+
+The avatar uses a tag-based image system for fine-grained control over which images are displayed. Each avatar image has:
+- **Emotion tag** (required): cheerful, excited, calm, focused, warm, empathetic, neutral, etc.
+- **Custom tags** (optional): outfit names, poses, moods, contexts, etc.
+
+**Manage avatar images:**
+```bash
+# Scan for unregistered images
+python -m pyagentvox.avatar_tags scan
+
+# Register new image
+python -m pyagentvox.avatar_tags add path/to/image.png --tags cheerful,dress,wave
+
+# Update image tags
+python -m pyagentvox.avatar_tags update path/to/image.png --tags cheerful,dress,peace-sign
+
+# List all registered images
+python -m pyagentvox.avatar_tags list
+
+# List images with specific tag
+python -m pyagentvox.avatar_tags list --tag cheerful
+```
+
+**Runtime tag filtering** (requires PID from PyAgentVox startup):
+```bash
+# Show only specific tags
+python -m pyagentvox.avatar_tags filter --pid <PID> --include casual,summer
+
+# Hide specific tags
+python -m pyagentvox.avatar_tags filter --pid <PID> --exclude formal
+
+# Reset filters
+python -m pyagentvox.avatar_tags filter --pid <PID> --reset
+```
+
+**Examples:**
+- Switch to casual summer outfit: `--include daisy-dukes,casual`
+- Hide formal outfits: `--exclude formal,ball-gown`
+- Show only cheerful poses without hoodie: `--include cheerful --exclude hoodie`
+
+**Animation:** Images with significantly different tags trigger a flip animation for smooth visual transitions.
+
+**Avatar Tag Control:** Use the `/avatar-tags` skill to manage avatar filtering:
+- `/avatar-tags list` - See all available tags with counts by category
+- `/avatar-tags filter --include casual,summer` - Show only images with specific tags
+- `/avatar-tags filter --exclude formal` - Hide images with specific tags
+- `/avatar-tags filter --reset` - Clear all filters
+- `/avatar-tags current` - Show current filter state'''
 
     # Add profile information if available
     profile_info = None
