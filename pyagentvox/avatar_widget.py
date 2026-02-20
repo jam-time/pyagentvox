@@ -32,6 +32,7 @@ Author:
 import contextlib
 import json
 import logging
+import math
 import os
 import random
 import sys
@@ -44,7 +45,7 @@ from tkinter import messagebox
 from typing import Any
 
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageEnhance, ImageFilter, ImageTk
 except ImportError:
     print('ERROR: Pillow is required for the avatar widget.', file=sys.stderr)
     print('Install with: pip install Pillow', file=sys.stderr)
@@ -54,6 +55,13 @@ try:
     import yaml
 except ImportError:
     yaml = None  # type: ignore[assignment]
+
+try:
+    import win32gui
+    import win32con
+except ImportError:
+    win32gui = None  # type: ignore[assignment]
+    win32con = None  # type: ignore[assignment]
 
 __author__ = 'Jake Meador <jameador13@gmail.com>'
 __all__ = ['AvatarWidget', 'ImageEntry', 'TagEditorDialog', 'main']
@@ -91,18 +99,22 @@ class ImageEntry:
 # ============================================================================
 
 def load_avatar_config() -> dict[str, Any]:
-    """Load avatar configuration from pyagentvox.yaml.
+    """Load avatar configuration from pyagentvox.yaml files.
+
+    Loads the package default config first, then merges any CWD config on top.
+    This ensures TTS/avatar base settings from the package are always present,
+    while CWD-specific settings (like image registry) override them.
 
     Returns:
         Avatar config dict with keys: directory, idle_states, emotion_hierarchy, etc.
         Returns default config if file not found or yaml not installed.
     """
-    default_config = {
+    default_config: dict[str, Any] = {
         'enabled': True,
         'directory': str(Path.home() / '.claude' / 'luna'),
         'default_size': 300,
         'cycle_interval': 4000,
-        'idle_states': {'waiting': 0, 'bored': 120, 'sleeping': 300},
+        'idle_states': {'waiting': 0, 'bored': 60, 'sleeping': 120},
         'emotion_hierarchy': {},
         'filters': {
             'include_tags': [],
@@ -110,42 +122,86 @@ def load_avatar_config() -> dict[str, Any]:
             'require_all_include': False,
         },
         'animation': {
-            'flip_threshold': 0.5,
-            'flip_duration': 300,
-            'flip_steps': 15,
+            'shimmer_threshold': 0.5,
+            'shimmer_duration': 400,
+            'shimmer_steps': 8,
         },
         'images': [],
     }
 
     if yaml is None:
-        logger.warning('PyYAML not installed, using default avatar config')
+        logger.warning('[AVATAR] PyYAML not installed, using default avatar config')
         return default_config
 
-    # Look for config file in package directory
+    result = default_config.copy()
+
+    # 1. Load package config first (base settings: directory, size, cycle_interval, etc.)
+    package_config_path = Path(__file__).parent / 'pyagentvox.yaml'
     try:
-        config_path = Path(__file__).parent / 'pyagentvox.yaml'
-        if config_path.exists():
-            with open(config_path, encoding='utf-8') as f:
+        if package_config_path.exists():
+            logger.debug(f'[AVATAR] Loading package config: {package_config_path}')
+            with open(package_config_path, encoding='utf-8') as f:
                 full_config = yaml.safe_load(f)
                 avatar_config = full_config.get('avatar', {})
 
-                # Merge with defaults (deep merge for nested dicts)
-                result = default_config.copy()
                 for key, value in avatar_config.items():
                     if key in result and isinstance(result[key], dict) and isinstance(value, dict):
                         result[key].update(value)
                     else:
                         result[key] = value
-
-                # Expand ~ in directory path
-                if 'directory' in result:
-                    result['directory'] = str(Path(result['directory']).expanduser())
-
-                return result
+                logger.debug(f'[AVATAR] Package config loaded ({len(avatar_config)} avatar keys)')
+        else:
+            logger.debug(f'[AVATAR] Package config not found: {package_config_path}')
     except Exception as e:
-        logger.warning(f'Failed to load avatar config: {e}')
+        logger.warning(f'[AVATAR] Failed to load package config: {e}')
 
-    return default_config
+    # 2. Merge CWD config on top (overrides like image registry)
+    cwd_config_path = Path.cwd() / 'pyagentvox.yaml'
+    if cwd_config_path.exists() and cwd_config_path.resolve() != package_config_path.resolve():
+        try:
+            logger.debug(f'[AVATAR] Loading CWD config overlay: {cwd_config_path}')
+            with open(cwd_config_path, encoding='utf-8') as f:
+                cwd_full_config = yaml.safe_load(f)
+                cwd_avatar_config = cwd_full_config.get('avatar', {})
+
+                for key, value in cwd_avatar_config.items():
+                    if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                        result[key].update(value)
+                    else:
+                        result[key] = value
+                logger.debug(
+                    f'[AVATAR] CWD config merged ({len(cwd_avatar_config)} avatar keys, '
+                    f'{len(cwd_avatar_config.get("images", []))} images)'
+                )
+        except Exception as e:
+            logger.warning(f'[AVATAR] Failed to load CWD config: {e}')
+
+    # Also check for pyagentvox.json in CWD
+    cwd_json_path = Path.cwd() / 'pyagentvox.json'
+    if cwd_json_path.exists():
+        try:
+            logger.debug(f'[AVATAR] Loading CWD JSON config overlay: {cwd_json_path}')
+            cwd_json_config = json.loads(cwd_json_path.read_text(encoding='utf-8'))
+            cwd_avatar_config = cwd_json_config.get('avatar', {})
+
+            for key, value in cwd_avatar_config.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            logger.debug(f'[AVATAR] CWD JSON config merged ({len(cwd_avatar_config)} avatar keys)')
+        except Exception as e:
+            logger.warning(f'[AVATAR] Failed to load CWD JSON config: {e}')
+
+    # Expand ~ in directory path
+    if 'directory' in result:
+        result['directory'] = str(Path(result['directory']).expanduser())
+
+    logger.debug(
+        f'[AVATAR] Final config: dir={result["directory"]}, size={result["default_size"]}, '
+        f'cycle={result["cycle_interval"]}ms, images={len(result["images"])}'
+    )
+    return result
 
 
 # ============================================================================
@@ -166,6 +222,7 @@ POSITION_FILE = Path(tempfile.gettempdir()) / 'pyagentvox_avatar_position.json'
 FADE_STEPS = 10
 FADE_INTERVAL_MS = 30
 EMOTION_POLL_INTERVAL_MS = 200
+SHIMMER_PEAK_BRIGHTNESS = 2.5  # Peak brightness multiplier for shimmer effect
 IDLE_CHECK_INTERVAL_MS = 5000  # Check idle state every 5 seconds
 FILTER_POLL_INTERVAL_MS = 500  # Check filter control file every 500ms
 
@@ -190,18 +247,54 @@ DEFAULT_AVATAR = 'cheerful'
 DETECTIVE_AVATAR = 'detective'
 WAITING_STATE = 'waiting'
 
+# Button hover avatar tags -- maps button state to image tag for tag-based lookup.
+# These tags are matched against the image registry to find contextual avatars
+# that visually communicate the button's function.
+BUTTON_HOVER_TAGS: dict[str, str] = {
+    'tts_on': 'headphones',    # Headphones image -- "I output voice"
+    'tts_off': 'shh',          # Shh gesture -- "voice is muted"
+    'stt_on': 'listening',     # Listening pose -- "I hear you"
+    'stt_off': 'shh',          # Shh gesture -- "mic is off"
+    # Note: 'close' and 'tags' buttons have no hover images
+    # - crying.png shows AFTER close button is pressed (in animation)
+    # - tags button shows current image (for editing that image's tags)
+}
+
+# Button styling colors
+BTN_COLOR_ACTIVE = '#2d6b3f'         # Muted green - feature enabled
+BTN_COLOR_INACTIVE = '#8b2d2d'       # Muted red - feature disabled
+BTN_COLOR_NEUTRAL = '#2a2a2a'        # Dark gray - non-toggle buttons (close, tags)
+BTN_COLOR_HOVER_ACTIVE = '#3a8a52'   # Brighter green on hover
+BTN_COLOR_HOVER_INACTIVE = '#a83a3a' # Brighter red on hover
+BTN_COLOR_HOVER_NEUTRAL = '#555555'  # Lighter gray on hover
+BTN_SHADOW_COLOR = '#111111'         # Shadow fill
+BTN_SHADOW_OFFSET = 2                # Shadow offset in pixels
+BTN_CORNER_RADIUS = 8               # Rounded corner radius
+
+# Avatar image shadow (contoured drop shadow behind Luna)
+AVATAR_SHADOW_OFFSET_X = 4          # Shadow horizontal offset
+AVATAR_SHADOW_OFFSET_Y = 6          # Shadow vertical offset (light from above)
+AVATAR_SHADOW_BLUR_RADIUS = 8       # Gaussian blur radius for soft edges
+AVATAR_SHADOW_OPACITY = 100         # Shadow alpha (0-255), 100 = ~39% opacity
+
 
 # ============================================================================
 # Emotion Resolution
 # ============================================================================
 
+_emotion_hierarchy_cache: dict[tuple[str, str], str] = {}
+
+
 def resolve_emotion_hierarchy(emotion: str, avatar_dir: Path) -> str:
     """Resolve an emotion through the hierarchy to find available images.
+
+    Results are cached to avoid repeated filesystem scans (called every 200ms
+    by the emotion poll). Cache is keyed on (emotion, avatar_dir_str).
 
     Resolution order:
     1. Check if emotion has images directly
     2. Check EMOTION_AVATAR_MAP for standard emotion mappings
-    3. Check EMOTION_HIERARCHY for specific → generic fallback
+    3. Check EMOTION_HIERARCHY for specific -> generic fallback
     4. Fall back to 'waiting' state
 
     Args:
@@ -211,6 +304,17 @@ def resolve_emotion_hierarchy(emotion: str, avatar_dir: Path) -> str:
     Returns:
         Resolved emotion name that has images available.
     """
+    cache_key = (emotion, str(avatar_dir))
+    if cache_key in _emotion_hierarchy_cache:
+        return _emotion_hierarchy_cache[cache_key]
+
+    result = _resolve_emotion_hierarchy_uncached(emotion, avatar_dir)
+    _emotion_hierarchy_cache[cache_key] = result
+    return result
+
+
+def _resolve_emotion_hierarchy_uncached(emotion: str, avatar_dir: Path) -> str:
+    """Uncached implementation of emotion hierarchy resolution."""
     # 1. Check if emotion has images directly
     if discover_variants(avatar_dir, emotion):
         return emotion
@@ -221,7 +325,7 @@ def resolve_emotion_hierarchy(emotion: str, avatar_dir: Path) -> str:
         logger.debug(f'Emotion {emotion} -> {mapped_emotion} (standard mapping)')
         return mapped_emotion
 
-    # 3. Try hierarchy fallback (for specific → generic mappings)
+    # 3. Try hierarchy fallback (for specific -> generic mappings)
     generic_emotion = EMOTION_HIERARCHY.get(emotion)
     if generic_emotion:
         # Recursively resolve the generic emotion
@@ -316,10 +420,16 @@ def load_image_registry(avatar_dir: Path, registry_config: list[dict]) -> list[I
         List of ImageEntry objects with resolved paths.
     """
     entries = []
+    skipped = 0
+    missing = 0
+
+    logger.debug(f'[AVATAR] Loading image registry: {len(registry_config)} entries from config')
+    logger.debug(f'[AVATAR] Base directory for relative paths: {avatar_dir}')
 
     for item in registry_config:
         if not isinstance(item, dict) or 'path' not in item or 'tags' not in item:
-            logger.warning(f'Invalid image registry entry: {item}')
+            logger.warning(f'[AVATAR] Invalid image registry entry (missing path/tags): {item}')
+            skipped += 1
             continue
 
         path = Path(item['path'])
@@ -328,6 +438,11 @@ def load_image_registry(avatar_dir: Path, registry_config: list[dict]) -> list[I
         # Resolve relative paths
         if not path.is_absolute():
             path = avatar_dir / path
+
+        # Check if file exists
+        if not path.exists():
+            logger.debug(f'[AVATAR] Image file missing: {path}')
+            missing += 1
 
         # Validate at least one emotion or control tag
         valid_emotions = {
@@ -347,12 +462,16 @@ def load_image_registry(avatar_dir: Path, registry_config: list[dict]) -> list[I
                            for tag in tag_set_lower)
 
         if not has_valid_tag:
-            logger.warning(f'Image {path} has no emotion or control tag, skipping')
+            logger.warning(f'[AVATAR] Image {path.name} has no emotion or control tag, skipping')
+            skipped += 1
             continue
 
         entries.append(ImageEntry(path=path, tags=tags))
 
-    logger.debug(f'Loaded {len(entries)} images from registry')
+    logger.info(
+        f'[AVATAR] Image registry loaded: {len(entries)} valid, '
+        f'{skipped} skipped, {missing} missing files'
+    )
     return entries
 
 
@@ -450,7 +569,8 @@ def discover_variants(avatar_dir: Path, emotion: str) -> list[Path]:
     """Discover all image variants for a given emotion.
 
     Looks for images in the emotion subdirectory, supporting multiple formats
-    (.png, .jpg, .jpeg, .webp). Falls back to root directory if no subdirectory exists.
+    (.png, .jpg, .jpeg, .webp). Falls back to root directory if subdirectory is
+    missing or empty.
 
     Args:
         avatar_dir: Directory containing avatar images (or emotion subdirectories).
@@ -462,12 +582,20 @@ def discover_variants(avatar_dir: Path, emotion: str) -> list[Path]:
     variants: list[Path] = []
     supported_formats = ['*.png', '*.jpg', '*.jpeg', '*.webp']
 
+    if not avatar_dir.exists():
+        logger.warning(f'[AVATAR] Avatar directory does not exist: {avatar_dir}')
+        return variants
+
     # Check for emotion subdirectory first (e.g., ~/.claude/luna/excited/)
     emotion_subdir = avatar_dir / emotion
     if emotion_subdir.is_dir():
         for pattern in supported_formats:
             variants.extend(sorted(emotion_subdir.glob(pattern)))
-        return variants
+        if variants:
+            logger.debug(f'[AVATAR] discover_variants("{emotion}"): {len(variants)} from subdirectory')
+            return variants
+        # Empty subdirectory - fall through to root directory check
+        logger.debug(f'[AVATAR] discover_variants("{emotion}"): subdirectory empty, checking root')
 
     # Fall back to root directory with emotion prefix (e.g., excited.png, excited-1.png)
     for pattern in supported_formats:
@@ -484,7 +612,9 @@ def discover_variants(avatar_dir: Path, emotion: str) -> list[Path]:
             if suffix.isdigit():
                 variants.append(variant_path)
 
-    return list(dict.fromkeys(variants))  # Remove duplicates while preserving order
+    result = list(dict.fromkeys(variants))  # Remove duplicates while preserving order
+    logger.debug(f'[AVATAR] discover_variants("{emotion}"): {len(result)} from root directory')
+    return result
 
 
 # ============================================================================
@@ -497,6 +627,7 @@ def _load_position() -> tuple[int, int] | None:
     Returns:
         Tuple of (x, y) coordinates, or None if no saved position.
     """
+    logger.debug(f'[AVATAR] Looking for saved position: {POSITION_FILE}')
     try:
         if POSITION_FILE.exists():
             data = json.loads(POSITION_FILE.read_text(encoding='utf-8'))
@@ -582,9 +713,13 @@ class TagEditorDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f'Edit Tags - {image_entry.path.name}')
         self.dialog.geometry('420x520')
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
         self.dialog.resizable(False, True)
+
+        # transient + grab_set can fail on overrideredirect parent windows
+        with contextlib.suppress(tk.TclError):
+            self.dialog.transient(parent)
+        with contextlib.suppress(tk.TclError):
+            self.dialog.grab_set()
 
         self._create_widgets()
 
@@ -787,10 +922,11 @@ class AvatarWidget:
         self.avatar_dir = avatar_dir or AVATAR_DIR
         self.size = size
         self.monitor_pid = monitor_pid
-        self.current_emotion: str = WAITING_STATE
+        self.current_emotion: str = ''  # Empty so _switch_emotion() doesn't skip initial display
         self.current_avatar_path: Path | None = None
         self._running = True
         self._fade_alpha = 1.0
+        self._fade_after_id: str | None = None  # Track fade animation callback for cancellation
 
         # Idle timer state (for bored/sleeping transitions)
         self._idle_start_time: float | None = None
@@ -810,47 +946,65 @@ class AvatarWidget:
         self._filter_poll_after_id: str | None = None
 
         # Animation settings
-        self._flip_threshold: float = ANIMATION_CONFIG['flip_threshold']
-        self._flip_duration: int = ANIMATION_CONFIG['flip_duration']
-        self._flip_steps: int = ANIMATION_CONFIG['flip_steps']
+        self._shimmer_threshold: float = ANIMATION_CONFIG['shimmer_threshold']
+        self._shimmer_duration: int = ANIMATION_CONFIG['shimmer_duration']
+        self._shimmer_steps: int = ANIMATION_CONFIG['shimmer_steps']
+        self._shimmer_after_id: str | None = None  # Track shimmer animation callback for cancellation
+
+        # Speaking indicator state
+        self._speaking_indicator_id: int | None = None  # Canvas item ID for speech bubble
+        self._speaking_dot_ids: list[int] = []  # Canvas item IDs for animated dots
+        self._speaking_anim_after_id: str | None = None  # After ID for dot animation
+        self._speaking_anim_frame: int = 0  # Current animation frame
+
+        # Hover glow state
+        self._glow_item_id: int | None = None  # Canvas item ID for glow effect
 
         # Load image registry from config
         self._image_registry = load_image_registry(self.avatar_dir, IMAGE_REGISTRY)
 
         # Interactive controls state
         self._buttons_visible = False
-        self._button_frame: tk.Frame | None = None
         self._preview_active = False
         self._preview_emotion: str | None = None
         self._tts_enabled = True
         self._stt_enabled = True
-        self._tts_button: tk.Button | None = None
-        self._stt_button: tk.Button | None = None
-        self._mouse_over_buttons = False
+        self._tag_editor_open = False
+
+        # Canvas-based control button IDs (bg rect + text for each)
+        self._ctrl_btn_ids: dict[str, tuple[int, int]] = {}  # name -> (bg_id, text_id)
 
         # Hover lock state (pauses variant cycling while mouse is over avatar)
         self._hover_locked = False
         self._was_cycling = False
 
-        # Tag editor button state (canvas items shown on hover)
-        self._tag_button_bg_id: int | None = None
-        self._tag_button_text_id: int | None = None
-
-        logger.info(f'Avatar dir: {self.avatar_dir}')
+        logger.info(f'[AVATAR] Avatar dir: {self.avatar_dir}')
+        logger.debug(f'[AVATAR] Avatar dir exists: {self.avatar_dir.exists()}')
         if monitor_pid:
-            logger.info(f'Monitoring PID: {monitor_pid}')
+            logger.info(f'[AVATAR] Monitoring PID: {monitor_pid}')
+        logger.debug(f'[AVATAR] Image registry: {len(self._image_registry)} entries')
+        logger.debug(f'[AVATAR] Widget size: {self.size}px')
 
         # Image cache: file_path_str -> PhotoImage
         self._image_cache: dict[str, ImageTk.PhotoImage] = {}
 
         # Build window
+        logger.debug('[AVATAR] Creating tkinter root window')
         self._root = tk.Tk()
         self._root.title('Luna Avatar')
+
+        logger.debug('[AVATAR] Setting overrideredirect(True)')
         self._root.overrideredirect(True)
+
+        logger.debug('[AVATAR] Setting window attributes: topmost=True')
         self._root.attributes('-topmost', True)
 
-        # Transparent background
-        self._transparent_color = '#010101'
+        # Transparent background - use a distinctive color that won't appear in real images.
+        # Previously #010101 (near-black) which caused thousands of dark image pixels to
+        # become transparent holes, potentially making the avatar invisible.
+        self._transparent_color = '#F0F0F1'
+        self._transparent_rgb = (240, 240, 241)  # Must match _transparent_color
+        logger.debug(f'[AVATAR] Setting transparent color: {self._transparent_color}')
         self._root.attributes('-transparentcolor', self._transparent_color)
         self._root.configure(bg=self._transparent_color)
 
@@ -864,6 +1018,7 @@ class AvatarWidget:
             bd=0,
         )
         self._canvas.pack(fill=tk.BOTH, expand=True)
+        logger.debug(f'[AVATAR] Canvas created: {self.size}x{self.size}')
 
         # Image item on canvas (anchored to bottom-center)
         self._image_item = self._canvas.create_image(
@@ -871,12 +1026,38 @@ class AvatarWidget:
             anchor=tk.S,
         )
 
+        # Log screen dimensions for positioning diagnostics
+        screen_w = self._root.winfo_screenwidth()
+        screen_h = self._root.winfo_screenheight()
+        logger.debug(f'[AVATAR] Screen dimensions: {screen_w}x{screen_h}')
+
         # Position window
         saved_pos = _load_position()
         if saved_pos:
-            self._root.geometry(f'{self.size}x{self.size}+{saved_pos[0]}+{saved_pos[1]}')
+            # Validate saved position is still on-screen
+            pos_x, pos_y = saved_pos
+            if 0 <= pos_x < screen_w and 0 <= pos_y < screen_h:
+                self._root.geometry(f'{self.size}x{self.size}+{pos_x}+{pos_y}')
+                logger.debug(f'[AVATAR] Restored saved position: x={pos_x}, y={pos_y}')
+            else:
+                logger.warning(
+                    f'[AVATAR] Saved position off-screen: x={pos_x}, y={pos_y} '
+                    f'(screen: {screen_w}x{screen_h}), using default'
+                )
+                self._position_bottom_right()
         else:
+            logger.debug('[AVATAR] No saved position, using bottom-right default')
             self._position_bottom_right()
+
+        # Ensure window is visible after setup
+        self._root.deiconify()
+        self._root.lift()
+        logger.debug('[AVATAR] Called deiconify() and lift() to ensure visibility')
+
+        # Log final window geometry
+        self._root.update_idletasks()
+        final_geometry = self._root.geometry()
+        logger.debug(f'[AVATAR] Final window geometry: {final_geometry}')
 
         # Bind events
         self._canvas.bind('<Button-3>', self._on_right_click)
@@ -890,15 +1071,17 @@ class AvatarWidget:
         # Drag state
         self._drag_x = 0
         self._drag_y = 0
+        self._drag_prev_hwnd = None  # Store foreground window before drag
 
         # Make click-through on Windows (pass clicks to windows behind)
         if sys.platform == 'win32':
             self._setup_click_through()
 
         # Load initial avatar (waiting state)
+        logger.debug('[AVATAR] Loading initial avatar (waiting state)')
         self._switch_emotion(WAITING_STATE)
 
-        logger.info(f'Avatar widget initialized ({self.size}x{self.size})')
+        logger.info(f'[AVATAR] Widget initialized ({self.size}x{self.size}), geometry: {final_geometry}')
 
     def _position_bottom_right(self) -> None:
         """Position window in the bottom-right corner, anchored to bottom."""
@@ -908,7 +1091,9 @@ class AvatarWidget:
         x = screen_w - self.size - margin
         # Anchor to very bottom of screen (above taskbar ~40px)
         y = screen_h - self.size - 40
-        self._root.geometry(f'{self.size}x{self.size}+{x}+{y}')
+        geometry = f'{self.size}x{self.size}+{x}+{y}'
+        self._root.geometry(geometry)
+        logger.debug(f'[AVATAR] Positioned bottom-right: x={x}, y={y} (screen: {screen_w}x{screen_h})')
 
     def _setup_click_through(self) -> None:
         """Make the window click-through on Windows using win32 API.
@@ -934,20 +1119,22 @@ class AvatarWidget:
             on 'waiting' emotion.
         """
         if emotion not in self._variant_cache:
-            variants = []
+            variants: list[Path] = []
+            logger.debug(f'[AVATAR] Resolving variants for emotion: {emotion}')
 
             # Tag-based lookup (if registry is populated)
             if self._image_registry:
                 # Map emotion to avatar base name for consistency
                 avatar_name = EMOTION_AVATAR_MAP.get(emotion, emotion)
+                logger.debug(f'[AVATAR] Tag lookup: emotion={emotion} -> avatar_name={avatar_name}')
 
                 # Get all images with this emotion tag (exclude all control tags)
-                control_tag_prefixes = {'control-', 'control'}
                 emotion_images = [
                     img for img in self._image_registry
                     if (avatar_name.lower() in img.tag_set and
                         not any(tag.startswith('control') for tag in img.tag_set))
                 ]
+                logger.debug(f'[AVATAR] Found {len(emotion_images)} images with tag "{avatar_name}"')
 
                 # Apply tag filters
                 if emotion_images:
@@ -958,31 +1145,49 @@ class AvatarWidget:
                         self._require_all_include
                     )
                     variants = [img.path for img in filtered]
+                    logger.debug(f'[AVATAR] After filtering: {len(variants)} variants')
 
                 # Fallback: if filters excluded everything, ignore filters for this emotion
                 if not variants and emotion_images:
                     variants = [img.path for img in emotion_images]
-                    logger.warning(f'Tag filters excluded all {emotion} images, ignoring filters')
+                    logger.warning(
+                        f'[AVATAR] Tag filters excluded all {emotion} images, ignoring filters'
+                    )
+            else:
+                logger.debug('[AVATAR] No image registry, using directory-based discovery')
 
             # Directory-based discovery (backward compatibility)
             if not variants:
                 avatar_name = EMOTION_AVATAR_MAP.get(emotion, emotion)
                 variants = discover_variants(self.avatar_dir, avatar_name)
+                logger.debug(
+                    f'[AVATAR] Directory discovery for "{avatar_name}": {len(variants)} variants'
+                )
 
             # For waiting state, try 'waiting' first, then fall back to cheerful
             if not variants and emotion == WAITING_STATE:
                 cheerful_path = self.avatar_dir / f'{DEFAULT_AVATAR}.png'
                 if cheerful_path.exists():
                     variants = [cheerful_path]
+                    logger.debug(f'[AVATAR] Waiting fallback to cheerful: {cheerful_path}')
+                else:
+                    logger.warning(f'[AVATAR] No waiting images AND no {DEFAULT_AVATAR}.png found!')
 
             # For any emotion with no variants, fall back to default avatar
             if not variants and emotion != WAITING_STATE:
                 default_path = self.avatar_dir / f'{DEFAULT_AVATAR}.png'
                 if default_path.exists():
                     variants = [default_path]
-                    logger.warning(f'No variants for {emotion}, falling back to {DEFAULT_AVATAR}')
+                    logger.warning(f'[AVATAR] No variants for {emotion}, falling back to {DEFAULT_AVATAR}')
+                else:
+                    logger.error(f'[AVATAR] No variants for {emotion} and no fallback image exists!')
 
             self._variant_cache[emotion] = variants
+            logger.debug(
+                f'[AVATAR] Cached {len(variants)} variant(s) for "{emotion}"'
+                + (f': {[p.name for p in variants[:3]]}...' if len(variants) > 3 else
+                   f': {[p.name for p in variants]}' if variants else '')
+            )
 
         return self._variant_cache[emotion]
 
@@ -1002,24 +1207,49 @@ class AvatarWidget:
         if cache_key in self._image_cache:
             return self._image_cache[cache_key]
 
+        if not image_path.exists():
+            logger.error(f'[AVATAR] Image file does not exist: {image_path}')
+            return None
+
         try:
+            logger.debug(f'[AVATAR] Loading image: {image_path.name} ({image_path.stat().st_size} bytes)')
             img = Image.open(image_path)
             img = img.convert('RGBA')
+            logger.debug(f'[AVATAR] Image dimensions: {img.width}x{img.height}, mode={img.mode}')
 
-            # Maintain aspect ratio, fit within size
-            img.thumbnail((self.size, self.size), Image.Resampling.LANCZOS)
+            # Maintain aspect ratio, fit within size (leave room for shadow offset)
+            shadow_pad = max(AVATAR_SHADOW_OFFSET_X, AVATAR_SHADOW_OFFSET_Y) + AVATAR_SHADOW_BLUR_RADIUS
+            effective_size = self.size - shadow_pad
+            img.thumbnail((effective_size, effective_size), Image.Resampling.LANCZOS)
 
-            # Create transparent background and paste image anchored to bottom
-            bg = Image.new('RGBA', (self.size, self.size), (1, 1, 1, 0))
+            # Create background matching window transparent color
+            r, g, b = self._transparent_rgb
+            bg = Image.new('RGBA', (self.size, self.size), (r, g, b, 0))
             offset_x = (self.size - img.width) // 2
             offset_y = self.size - img.height  # Anchor to bottom
+
+            # Generate contoured drop shadow from image alpha channel
+            alpha = img.split()[3]  # Extract alpha channel
+            # Clamp alpha to shadow opacity (fast vectorized via point())
+            clamped_alpha = alpha.point(lambda a: min(a, AVATAR_SHADOW_OPACITY))
+            # Create solid black shadow with clamped alpha shape
+            shadow = Image.new('RGBA', img.size, (0, 0, 0, 0))
+            shadow.putalpha(clamped_alpha)
+            # Blur the shadow for soft edges
+            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=AVATAR_SHADOW_BLUR_RADIUS))
+
+            # Paste shadow first (offset), then image on top
+            shadow_x = offset_x + AVATAR_SHADOW_OFFSET_X
+            shadow_y = offset_y + AVATAR_SHADOW_OFFSET_Y
+            bg.paste(shadow, (shadow_x, shadow_y), shadow)
             bg.paste(img, (offset_x, offset_y), img)
 
             photo = ImageTk.PhotoImage(bg)
             self._image_cache[cache_key] = photo
+            logger.debug(f'[AVATAR] Image cached: {image_path.name} (scaled to {img.width}x{img.height})')
             return photo
         except Exception as e:
-            logger.error(f'Failed to load image {image_path}: {e}')
+            logger.error(f'[AVATAR] Failed to load image {image_path}: {e}', exc_info=True)
             return None
 
     def _display_variant(self, image_path: Path) -> None:
@@ -1034,21 +1264,25 @@ class AvatarWidget:
             # Keep reference to prevent garbage collection
             self._canvas._current_photo = photo  # type: ignore[attr-defined]
             self.current_avatar_path = image_path
-            logger.debug(f'Displaying: {image_path.name}')
+            logger.debug(f'[AVATAR] Displaying: {image_path.name}')
+        else:
+            logger.warning(f'[AVATAR] Failed to display variant: {image_path}')
 
-    def _switch_emotion(self, emotion: str, force_flip: bool = False) -> None:
+    def _switch_emotion(self, emotion: str, force_shimmer: bool = False) -> None:
         """Switch to a new emotion, resetting variant cycling.
 
-        Decides between fade and flip animations based on tag similarity.
+        Decides between immediate switch and shimmer animation based on tag similarity.
 
         Args:
             emotion: New emotion name to display.
-            force_flip: Force flip animation regardless of tag similarity.
+            force_shimmer: Force shimmer animation regardless of tag similarity.
         """
-        if emotion == self.current_emotion:
+        # Allow initial load even when emotion matches (no image displayed yet)
+        if emotion == self.current_emotion and self.current_avatar_path is not None:
             return
 
         old_emotion = self.current_emotion
+        logger.debug(f'[AVATAR] Switching emotion: {old_emotion} -> {emotion}')
         variants = self._get_variants(emotion)
 
         if not variants:
@@ -1059,9 +1293,9 @@ class AvatarWidget:
         new_variant_index = random.randint(0, len(variants) - 1)
         new_image_path = variants[new_variant_index]
 
-        # Determine if we should use flip animation based on tag similarity
-        use_flip = force_flip
-        if not use_flip and self._image_registry and self.current_avatar_path:
+        # Determine if we should use shimmer animation based on tag similarity
+        use_shimmer = force_shimmer
+        if not use_shimmer and self._image_registry and self.current_avatar_path:
             # Get tags for current and new images
             current_tags = set()
             new_tags = set()
@@ -1075,12 +1309,12 @@ class AvatarWidget:
             # Calculate similarity and decide animation type
             if current_tags and new_tags:
                 similarity = calculate_tag_similarity(current_tags, new_tags)
-                use_flip = similarity < self._flip_threshold
-                logger.debug(f'Tag similarity: {similarity:.2f}, flip={use_flip}')
+                use_shimmer = similarity < self._shimmer_threshold
+                logger.debug(f'Tag similarity: {similarity:.2f}, shimmer={use_shimmer}')
 
         # Execute appropriate transition
-        if use_flip:
-            self._flip_transition(emotion, new_image_path)
+        if use_shimmer:
+            self._shimmer_transition(emotion, new_image_path)
         else:
             # Use immediate switch (no fade for now to keep it simple)
             self.current_emotion = emotion
@@ -1140,6 +1374,12 @@ class AvatarWidget:
         if new_emotion == self.current_emotion:
             return
 
+        # Cancel any in-progress fade to prevent overlapping animations
+        if self._fade_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._fade_after_id)
+            self._fade_after_id = None
+
         self._fade_step = 0
         self._pending_emotion = new_emotion
         self._fade_out()
@@ -1160,9 +1400,9 @@ class AvatarWidget:
             # Swap emotion at full transparency
             self._switch_emotion(self._pending_emotion)
             self._fade_step = 0
-            self._root.after(FADE_INTERVAL_MS, self._fade_in)
+            self._fade_after_id = self._root.after(FADE_INTERVAL_MS, self._fade_in)
         else:
-            self._root.after(FADE_INTERVAL_MS, self._fade_out)
+            self._fade_after_id = self._root.after(FADE_INTERVAL_MS, self._fade_out)
 
     def _fade_in(self) -> None:
         """Animate fade-in step."""
@@ -1177,15 +1417,19 @@ class AvatarWidget:
                 self._root.attributes('-alpha', alpha)
 
         if self._fade_step < FADE_STEPS:
-            self._root.after(FADE_INTERVAL_MS, self._fade_in)
+            self._fade_after_id = self._root.after(FADE_INTERVAL_MS, self._fade_in)
+        else:
+            self._fade_after_id = None
 
-    def _flip_transition(self, new_emotion: str, new_image_path: Path) -> None:
-        """Animate horizontal flip transition, changing image mid-flip.
+    def _shimmer_transition(self, new_emotion: str, new_image_path: Path) -> None:
+        """Animate a shimmer/sparkle brightness pulse during emotion transitions.
 
         Animation sequence:
-        1. Scale X from 1.0 → 0.0 (flip left, image disappears)
-        2. Switch to new emotion and image (at X scale 0.0, invisible)
-        3. Scale X from 0.0 → 1.0 (flip right, new image appears)
+        1. Current image brightens to peak (shimmer out)
+        2. At peak brightness, swap to new image
+        3. New image dims from peak back to normal (shimmer in)
+
+        The effect creates a brief magical glow without distorting the image.
 
         Args:
             new_emotion: Emotion to transition to.
@@ -1194,32 +1438,53 @@ class AvatarWidget:
         if not self._running:
             return
 
-        steps = self._flip_steps
-        delay_ms = self._flip_duration / (steps * 2)  # Divide by 2 for flip-out + flip-in
+        # Cancel any in-progress shimmer to prevent overlapping animations
+        if self._shimmer_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._shimmer_after_id)
+            self._shimmer_after_id = None
 
-        # Flip out (current image)
-        def flip_out(step: int = 0) -> None:
+        steps = self._shimmer_steps
+        delay_ms = max(16, int(self._shimmer_duration / (steps * 2)))
+        peak = SHIMMER_PEAK_BRIGHTNESS
+
+        # Pre-load source images for shimmer frames
+        shimmer_out_source = self._load_shimmer_source(self.current_avatar_path)
+        shimmer_in_source = self._load_shimmer_source(new_image_path)
+
+        def ease_out_quad(t: float) -> float:
+            """Quadratic ease-out: fast start, slow end."""
+            return t * (2.0 - t)
+
+        def ease_in_quad(t: float) -> float:
+            """Quadratic ease-in: slow start, fast end."""
+            return t * t
+
+        # Phase 1: Brighten current image to peak
+        def shimmer_out(step: int = 0) -> None:
             if not self._running or step >= steps:
-                # Switch emotion and image at full transparency
+                # Swap to new image at peak brightness
                 old_emotion = self.current_emotion
                 self.current_emotion = new_emotion
                 self._current_variant_index = 0
-                self._display_variant(new_image_path)
-                logger.info(f'Emotion: {old_emotion} -> {new_emotion} (flip animation)')
+                self.current_avatar_path = new_image_path
+                logger.info(f'Emotion: {old_emotion} -> {new_emotion} (shimmer animation)')
 
-                # Start flip-in
-                self._root.after(int(delay_ms), lambda: flip_in(0))
+                # Start shimmer-in with the new image
+                self._shimmer_after_id = self._root.after(delay_ms, lambda: shimmer_in(0))
                 return
 
-            scale_x = 1.0 - (step / steps)
-            self._scale_canvas_x(scale_x)
-            self._root.after(int(delay_ms), lambda: flip_out(step + 1))
+            t = ease_out_quad(step / steps)
+            brightness = 1.0 + (peak - 1.0) * t
+            self._render_shimmer_frame(shimmer_out_source, brightness)
+            self._shimmer_after_id = self._root.after(delay_ms, lambda s=step: shimmer_out(s + 1))
 
-        # Flip in (new image)
-        def flip_in(step: int = 0) -> None:
+        # Phase 2: Dim new image from peak back to normal
+        def shimmer_in(step: int = 0) -> None:
             if not self._running or step >= steps:
-                # Restore normal scale
-                self._scale_canvas_x(1.0)
+                # Restore normal display and clean up
+                self._display_variant(new_image_path)
+                self._shimmer_after_id = None
                 # Resume variant cycling if multiple variants exist
                 variants = self._get_variants(self.current_emotion)
                 if len(variants) > 1 and self._cycle_after_id is None:
@@ -1228,9 +1493,10 @@ class AvatarWidget:
                     )
                 return
 
-            scale_x = step / steps
-            self._scale_canvas_x(scale_x)
-            self._root.after(int(delay_ms), lambda: flip_in(step + 1))
+            t = ease_in_quad(step / steps)
+            brightness = peak - (peak - 1.0) * t
+            self._render_shimmer_frame(shimmer_in_source, brightness)
+            self._shimmer_after_id = self._root.after(delay_ms, lambda s=step: shimmer_in(s + 1))
 
         # Cancel any existing cycle timer
         if self._cycle_after_id is not None:
@@ -1238,43 +1504,69 @@ class AvatarWidget:
                 self._root.after_cancel(self._cycle_after_id)
             self._cycle_after_id = None
 
-        # Start flip-out animation
-        flip_out(0)
+        # Start shimmer-out animation
+        shimmer_out(0)
 
-    def _scale_canvas_x(self, scale: float) -> None:
-        """Scale canvas horizontally for flip effect.
+    def _load_shimmer_source(self, image_path: Path | None) -> Image.Image | None:
+        """Load and composite an image for shimmer animation frames.
 
-        Uses PIL to horizontally scale the current image.
+        Returns the image fitted to widget size with aspect ratio preserved
+        and bottom-anchored on transparent background, matching the normal
+        display pipeline exactly.
 
         Args:
-            scale: Scale factor (0.0 = invisible, 1.0 = normal width).
+            image_path: Path to the image file.
+
+        Returns:
+            Composited RGBA Image at (self.size x self.size), or None.
         """
-        if not self.current_avatar_path:
-            return
-
+        if not image_path or not image_path.exists():
+            return None
         try:
-            img = Image.open(self.current_avatar_path)
-            img = img.convert('RGBA')
+            img = Image.open(image_path).convert('RGBA')
+            img.thumbnail((self.size, self.size), Image.Resampling.LANCZOS)
 
-            # Scale width while maintaining height
-            new_width = max(1, int(img.width * scale))
-            scaled = img.resize((new_width, img.height), Image.Resampling.LANCZOS)
+            # Composite onto transparent background, bottom-anchored
+            r, g, b = self._transparent_rgb
+            bg = Image.new('RGBA', (self.size, self.size), (r, g, b, 0))
+            offset_x = (self.size - img.width) // 2
+            offset_y = self.size - img.height
+            bg.paste(img, (offset_x, offset_y), img)
+            return bg
+        except Exception as e:
+            logger.error(f'[AVATAR] Failed to load shimmer source {image_path}: {e}')
+            return None
 
-            # Maintain aspect ratio, fit within size
-            scaled.thumbnail((self.size, self.size), Image.Resampling.LANCZOS)
+    def _render_shimmer_frame(self, source: Image.Image | None, brightness: float) -> None:
+        """Render a single frame of the shimmer animation.
 
-            # Create transparent background and paste image anchored to bottom
-            bg = Image.new('RGBA', (self.size, self.size), (1, 1, 1, 0))
-            offset_x = (self.size - scaled.width) // 2
-            offset_y = self.size - scaled.height  # Anchor to bottom
-            bg.paste(scaled, (offset_x, offset_y), scaled)
+        Applies a brightness enhancement to the source image while preserving
+        the alpha channel (transparent pixels stay transparent).
 
-            photo = ImageTk.PhotoImage(bg)
+        Args:
+            source: Pre-composited RGBA image at (self.size x self.size).
+            brightness: Brightness multiplier (1.0 = normal, >1.0 = brighter).
+        """
+        if source is None:
+            return
+        try:
+            # Split alpha channel before brightness adjustment
+            r_chan, g_chan, b_chan, a_chan = source.split()
+
+            # Apply brightness to RGB channels only
+            rgb_img = Image.merge('RGB', (r_chan, g_chan, b_chan))
+            enhancer = ImageEnhance.Brightness(rgb_img)
+            brightened = enhancer.enhance(brightness)
+
+            # Recombine with original alpha channel
+            result = brightened.convert('RGBA')
+            result.putalpha(a_chan)
+
+            photo = ImageTk.PhotoImage(result)
             self._canvas.itemconfig(self._image_item, image=photo)
-            # Keep reference to prevent garbage collection
             self._canvas._current_photo = photo  # type: ignore[attr-defined]
         except Exception as e:
-            logger.error(f'Failed to scale image {self.current_avatar_path}: {e}')
+            logger.error(f'[AVATAR] Failed to render shimmer frame: {e}')
 
     # ========================================================================
     # Idle Timer Management
@@ -1293,8 +1585,16 @@ class AvatarWidget:
             )
 
     def _reset_idle_timer(self) -> None:
-        """Reset idle timer (called when TTS starts speaking)."""
+        """Reset idle timer (called when TTS/STT activity resumes).
+
+        Cancels any pending idle check and clears the start time so the
+        next _start_idle_timer call begins fresh.
+        """
         self._idle_start_time = None
+        if self._idle_check_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._idle_check_after_id)
+            self._idle_check_after_id = None
         logger.debug('Idle timer reset')
 
     def _check_idle_state(self) -> None:
@@ -1329,6 +1629,111 @@ class AvatarWidget:
             )
 
     # ========================================================================
+    # Speaking Indicator
+    # ========================================================================
+
+    def _show_speaking_indicator(self) -> None:
+        """Show a speech bubble with animated dots when TTS is speaking."""
+        if self._speaking_indicator_id is not None:
+            return
+        cx = 45
+        cy = 25
+        bw, bh = 50, 28
+        self._speaking_indicator_id = self._canvas.create_oval(
+            cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2,
+            fill='white', outline='#cccccc', width=1,
+        )
+        dot_radius = 3
+        dot_spacing = 12
+        self._speaking_dot_ids = []
+        for i in range(3):
+            dot_x = cx - dot_spacing + (i * dot_spacing)
+            dot_id = self._canvas.create_oval(
+                dot_x - dot_radius, cy - dot_radius, dot_x + dot_radius, cy + dot_radius,
+                fill='#aaaaaa', outline='',
+            )
+            self._speaking_dot_ids.append(dot_id)
+        tri_x = cx + bw // 2 - 8
+        tri_y = cy + bh // 2
+        self._speaking_tri_id = self._canvas.create_polygon(
+            tri_x, tri_y - 2, tri_x + 6, tri_y + 8, tri_x - 6, tri_y - 2,
+            fill='white', outline='#cccccc', width=1,
+        )
+        self._speaking_anim_frame = 0
+        self._animate_speaking_dots()
+        logger.debug('[AVATAR] Speaking indicator shown')
+
+    def _hide_speaking_indicator(self) -> None:
+        """Remove the speech bubble indicator from the canvas."""
+        if self._speaking_indicator_id is not None:
+            self._canvas.delete(self._speaking_indicator_id)
+            self._speaking_indicator_id = None
+        for dot_id in self._speaking_dot_ids:
+            self._canvas.delete(dot_id)
+        self._speaking_dot_ids = []
+        if hasattr(self, '_speaking_tri_id') and self._speaking_tri_id is not None:
+            self._canvas.delete(self._speaking_tri_id)
+            self._speaking_tri_id = None
+        if self._speaking_anim_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._speaking_anim_after_id)
+            self._speaking_anim_after_id = None
+        logger.debug('[AVATAR] Speaking indicator hidden')
+
+    def _animate_speaking_dots(self) -> None:
+        """Animate the speech bubble dots in a wave pattern."""
+        if not self._running or not self._speaking_dot_ids:
+            return
+        active_dot = self._speaking_anim_frame % 3
+        for i, dot_id in enumerate(self._speaking_dot_ids):
+            fill = '#555555' if i == active_dot else '#cccccc'
+            self._canvas.itemconfig(dot_id, fill=fill)
+        self._speaking_anim_frame += 1
+        self._speaking_anim_after_id = self._root.after(400, self._animate_speaking_dots)
+
+    # ========================================================================
+    # Hover Glow Effect
+    # ========================================================================
+
+    def _show_hover_glow(self) -> None:
+        """Show a soft golden aura behind the avatar on mouse hover.
+
+        Creates multiple concentric ovals with golden colors and decreasing
+        stipple density to simulate a partially transparent ethereal glow.
+        """
+        if self._glow_item_id is not None:
+            return
+
+        # Build layered golden aura (outer = faintest, inner = brightest)
+        glow_layers = [
+            (5, '#c8962d', 'gray12'),    # Outer: faint warm gold
+            (15, '#d4a843', 'gray25'),    # Mid: soft amber
+            (25, '#e8c362', 'gray25'),    # Inner: brighter gold
+        ]
+
+        self._glow_layer_ids: list[int] = []
+        for margin, color, stipple in glow_layers:
+            layer_id = self._canvas.create_oval(
+                margin, margin, self.size - margin, self.size - margin,
+                fill=color, outline='', stipple=stipple,
+            )
+            self._canvas.tag_lower(layer_id, self._image_item)
+            self._glow_layer_ids.append(layer_id)
+
+        # Use first layer ID as sentinel for glow-active check
+        self._glow_item_id = self._glow_layer_ids[0]
+        logger.debug('[AVATAR] Golden hover glow shown')
+
+    def _hide_hover_glow(self) -> None:
+        """Remove the hover glow effect from the canvas."""
+        if self._glow_item_id is not None:
+            for layer_id in getattr(self, '_glow_layer_ids', []):
+                self._canvas.delete(layer_id)
+            self._glow_layer_ids = []
+            self._glow_item_id = None
+            logger.debug('[AVATAR] Golden hover glow hidden')
+
+    # ========================================================================
     # Event Handlers
     # ========================================================================
 
@@ -1338,9 +1743,16 @@ class AvatarWidget:
         self.stop()
 
     def _on_drag_start(self, event: tk.Event) -> None:
-        """Start drag operation."""
+        """Start drag operation and save previous foreground window."""
         self._drag_x = event.x
         self._drag_y = event.y
+
+        # Store the foreground window before drag (for focus restoration)
+        if sys.platform == 'win32' and win32gui:
+            try:
+                self._drag_prev_hwnd = win32gui.GetForegroundWindow()
+            except Exception:
+                self._drag_prev_hwnd = None
 
     def _on_drag_motion(self, event: tk.Event) -> None:
         """Handle drag motion to move window."""
@@ -1349,17 +1761,29 @@ class AvatarWidget:
         self._root.geometry(f'+{x}+{y}')
 
     def _on_drag_release(self, event: tk.Event) -> None:
-        """Save position when drag ends."""
+        """Save position when drag ends and restore focus to previous window."""
         _save_position(self._root.winfo_x(), self._root.winfo_y())
+
+        # Restore focus to previous window after drag
+        if self._drag_prev_hwnd and sys.platform == 'win32' and win32gui:
+            def restore_focus() -> None:
+                try:
+                    win32gui.SetForegroundWindow(self._drag_prev_hwnd)
+                except Exception:
+                    pass
+            self._root.after(50, restore_focus)
+            self._drag_prev_hwnd = None
 
     # ========================================================================
     # Interactive Controls
     # ========================================================================
 
     def _on_mouse_enter(self, event: tk.Event) -> None:
-        """Handle mouse entering avatar area - show controls and pause cycling."""
+        """Handle mouse entering avatar area - show controls, glow, and pause cycling."""
+        logger.debug('[AVATAR] Mouse entered avatar area')
         if not self._buttons_visible:
             self._show_buttons()
+        self._show_hover_glow()
 
         # Hover lock: pause variant cycling while mouse is over avatar
         if not self._hover_locked:
@@ -1373,9 +1797,6 @@ class AvatarWidget:
             else:
                 self._was_cycling = False
 
-        # Show tag editor button
-        self._show_tag_button()
-
     def _on_mouse_leave(self, event: tk.Event) -> None:
         """Handle mouse leaving avatar area - hide buttons and resume cycling."""
         # Schedule check after short delay to allow mouse to enter button area
@@ -1384,26 +1805,22 @@ class AvatarWidget:
 
     def _check_hide_buttons(self) -> None:
         """Check if mouse is still over avatar/buttons area, hide if not."""
-        if self._buttons_visible and not self._mouse_over_buttons:
-            # Check if mouse is still over canvas
-            try:
-                x, y = self._root.winfo_pointerxy()
-                canvas_x = self._canvas.winfo_rootx()
-                canvas_y = self._canvas.winfo_rooty()
-                canvas_w = self._canvas.winfo_width()
-                canvas_h = self._canvas.winfo_height()
+        if not self._buttons_visible:
+            return
 
-                # If mouse is outside both canvas and button frame, hide buttons
-                if not (canvas_x <= x <= canvas_x + canvas_w and canvas_y <= y <= canvas_y + canvas_h):
-                    if self._button_frame:
-                        frame_x = self._button_frame.winfo_rootx()
-                        frame_y = self._button_frame.winfo_rooty()
-                        frame_w = self._button_frame.winfo_width()
-                        frame_h = self._button_frame.winfo_height()
-                        if not (frame_x <= x <= frame_x + frame_w and frame_y <= y <= frame_y + frame_h):
-                            self._hide_buttons()
-            except tk.TclError:
-                pass
+        try:
+            x, y = self._root.winfo_pointerxy()
+            canvas_x = self._canvas.winfo_rootx()
+            canvas_y = self._canvas.winfo_rooty()
+            canvas_w = self._canvas.winfo_width()
+            canvas_h = self._canvas.winfo_height()
+
+            # If mouse is outside canvas area, hide buttons and glow
+            if not (canvas_x <= x <= canvas_x + canvas_w and canvas_y <= y <= canvas_y + canvas_h):
+                self._hide_buttons()
+                self._hide_hover_glow()
+        except tk.TclError:
+            pass
 
     def _check_release_hover_lock(self) -> None:
         """Release hover lock if mouse has truly left the avatar area."""
@@ -1420,18 +1837,8 @@ class AvatarWidget:
             still_over_canvas = (canvas_x <= x <= canvas_x + canvas_w
                                  and canvas_y <= y <= canvas_y + canvas_h)
 
-            still_over_buttons = False
-            if self._button_frame and self._buttons_visible:
-                frame_x = self._button_frame.winfo_rootx()
-                frame_y = self._button_frame.winfo_rooty()
-                frame_w = self._button_frame.winfo_width()
-                frame_h = self._button_frame.winfo_height()
-                still_over_buttons = (frame_x <= x <= frame_x + frame_w
-                                      and frame_y <= y <= frame_y + frame_h)
-
-            if not still_over_canvas and not still_over_buttons:
+            if not still_over_canvas:
                 self._hover_locked = False
-                self._hide_tag_button()
 
                 # Resume variant cycling if it was active before hover
                 if self._was_cycling:
@@ -1446,108 +1853,239 @@ class AvatarWidget:
             pass
 
     # ========================================================================
-    # Tag Editor Button (canvas overlay)
+    # Canvas Control Buttons (overlay drawn on canvas)
     # ========================================================================
 
-    def _show_tag_button(self) -> None:
-        """Display tag editor button in top-right corner of canvas."""
-        if self._tag_button_bg_id is not None:
-            return  # Already visible
+    def _create_rounded_rect(
+        self, x: int, y: int, width: int, height: int,
+        radius: int, tag: str, **kwargs: Any,
+    ) -> int:
+        """Create a rounded rectangle on the canvas using a smooth polygon.
 
-        # Position in top-right corner with margin
-        btn_w, btn_h = 30, 24
-        margin = 8
-        x = self._canvas.winfo_width() - btn_w - margin
-        y = margin
+        Args:
+            x: Left edge x coordinate.
+            y: Top edge y coordinate.
+            width: Rectangle width in pixels.
+            height: Rectangle height in pixels.
+            radius: Corner radius in pixels.
+            tag: Canvas tag for the item.
+            **kwargs: Additional arguments passed to create_polygon (fill, outline, etc).
 
-        # Background rectangle
-        self._tag_button_bg_id = self._canvas.create_rectangle(
-            x, y, x + btn_w, y + btn_h,
-            fill='#3a3a3a',
-            outline='#888888',
-            width=1,
-            tags='tag_button',
+        Returns:
+            Canvas item ID of the polygon.
+        """
+        r = min(radius, width // 2, height // 2)
+        x2, y2 = x + width, y + height
+        points = [
+            x + r, y,
+            x2 - r, y,
+            x2, y,
+            x2, y + r,
+            x2, y2 - r,
+            x2, y2,
+            x2 - r, y2,
+            x + r, y2,
+            x, y2,
+            x, y2 - r,
+            x, y + r,
+            x, y,
+        ]
+        return self._canvas.create_polygon(
+            points, smooth=True, tags=tag, **kwargs,
         )
 
-        # Label text
-        self._tag_button_text_id = self._canvas.create_text(
-            x + btn_w // 2, y + btn_h // 2,
-            text='Tags',
+    def _get_btn_color(self, tag: str) -> str:
+        """Get the current fill color for a button based on its state."""
+        if tag == 'ctrl_tts':
+            return BTN_COLOR_ACTIVE if self._tts_enabled else BTN_COLOR_INACTIVE
+        if tag == 'ctrl_stt':
+            return BTN_COLOR_ACTIVE if self._stt_enabled else BTN_COLOR_INACTIVE
+        return BTN_COLOR_NEUTRAL
+
+    def _get_btn_hover_color(self, tag: str) -> str:
+        """Get the hover fill color for a button based on its state."""
+        if tag == 'ctrl_tts':
+            return BTN_COLOR_HOVER_ACTIVE if self._tts_enabled else BTN_COLOR_HOVER_INACTIVE
+        if tag == 'ctrl_stt':
+            return BTN_COLOR_HOVER_ACTIVE if self._stt_enabled else BTN_COLOR_HOVER_INACTIVE
+        return BTN_COLOR_HOVER_NEUTRAL
+
+    def _create_canvas_button(
+        self, x: int, y: int, width: int, height: int, text: str, tag: str,
+        click_handler: Any, fill_color: str = BTN_COLOR_NEUTRAL,
+    ) -> tuple[int, int]:
+        """Create a canvas-based button overlay with rounded corners and shadow.
+
+        Args:
+            x: Left edge x coordinate.
+            y: Top edge y coordinate.
+            width: Button width in pixels.
+            height: Button height in pixels.
+            text: Button label text.
+            tag: Canvas tag for grouping (used for event binding and deletion).
+            click_handler: Callback for button click.
+            fill_color: Background fill color for the button.
+
+        Returns:
+            Tuple of (background_rect_id, text_id).
+        """
+        # Drop shadow (offset behind the button)
+        self._create_rounded_rect(
+            x + BTN_SHADOW_OFFSET, y + BTN_SHADOW_OFFSET, width, height,
+            BTN_CORNER_RADIUS, tag, fill=BTN_SHADOW_COLOR, outline='',
+        )
+
+        # Rounded rectangle background
+        bg_id = self._create_rounded_rect(
+            x, y, width, height, BTN_CORNER_RADIUS, tag,
+            fill=fill_color, outline='#555555',
+        )
+
+        text_id = self._canvas.create_text(
+            x + width // 2, y + height // 2,
+            text=text,
             fill='#cccccc',
-            font=('Segoe UI', 8),
-            tags='tag_button',
+            font=('Segoe UI Emoji', 11),
+            tags=tag,
         )
 
-        # Bind click event on the tag
-        self._canvas.tag_bind('tag_button', '<Button-1>', self._open_tag_editor)
+        # Wrap click handler with focus restoration
+        def handle_click_with_focus_restore(event: tk.Event) -> None:
+            """Execute button handler and restore focus to previous window."""
+            # Get foreground window before our window takes focus
+            prev_hwnd = None
+            if sys.platform == 'win32' and win32gui:
+                try:
+                    prev_hwnd = win32gui.GetForegroundWindow()
+                except Exception:
+                    pass
 
-        # Hover effect on tag button
-        self._canvas.tag_bind('tag_button', '<Enter>', self._on_tag_button_enter)
-        self._canvas.tag_bind('tag_button', '<Leave>', self._on_tag_button_leave)
+            # Execute the actual button handler
+            click_handler()
 
-        logger.debug('[AVATAR] Tag button shown')
+            # Restore focus to previous window after a short delay
+            if prev_hwnd and sys.platform == 'win32' and win32gui:
+                def restore_focus() -> None:
+                    try:
+                        win32gui.SetForegroundWindow(prev_hwnd)
+                    except Exception:
+                        pass
+                self._root.after(50, restore_focus)
 
-    def _hide_tag_button(self) -> None:
-        """Hide tag editor button from canvas."""
-        if self._tag_button_bg_id is not None:
-            self._canvas.delete('tag_button')
-            self._tag_button_bg_id = None
-            self._tag_button_text_id = None
-            logger.debug('[AVATAR] Tag button hidden')
+        self._canvas.tag_bind(tag, '<Button-1>', handle_click_with_focus_restore)
+        self._canvas.tag_bind(tag, '<Enter>', lambda e: self._on_ctrl_btn_enter(tag))
+        self._canvas.tag_bind(tag, '<Leave>', lambda e: self._on_ctrl_btn_leave(tag))
 
-    def _on_tag_button_enter(self, event: tk.Event) -> None:
-        """Highlight tag button on hover."""
-        if self._tag_button_bg_id is not None:
-            self._canvas.itemconfig(self._tag_button_bg_id, fill='#555555')
-            self._canvas.itemconfig(self._tag_button_text_id, fill='#ffffff')
+        return bg_id, text_id
 
-    def _on_tag_button_leave(self, event: tk.Event) -> None:
-        """Restore tag button on hover leave."""
-        if self._tag_button_bg_id is not None:
-            self._canvas.itemconfig(self._tag_button_bg_id, fill='#3a3a3a')
-            self._canvas.itemconfig(self._tag_button_text_id, fill='#cccccc')
+    def _on_ctrl_btn_enter(self, tag: str) -> None:
+        """Highlight a canvas control button on hover and show preview avatar.
+
+        When hover-locked, only the button color changes -- the locked avatar
+        image stays visible.
+        """
+        if tag in self._ctrl_btn_ids:
+            bg_id, text_id = self._ctrl_btn_ids[tag]
+            self._canvas.itemconfig(bg_id, fill=self._get_btn_hover_color(tag))
+            self._canvas.itemconfig(text_id, fill='#ffffff')
+
+        # Skip avatar preview when hover-locked (locked image stays visible)
+        if self._hover_locked:
+            return
+
+        # Show hover avatar for all control buttons
+        preview_map = {
+            'ctrl_tts': 'tts',
+            'ctrl_stt': 'stt',
+            'ctrl_close': 'close',
+            'ctrl_tags': 'tags',
+        }
+        if tag in preview_map:
+            self._preview_image(preview_map[tag])
+
+    def _on_ctrl_btn_leave(self, tag: str) -> None:
+        """Restore a canvas control button on hover leave and restore emotion.
+
+        When hover-locked, only the button color reverts -- the locked avatar
+        image stays visible (no restore needed since no preview was shown).
+        """
+        if tag in self._ctrl_btn_ids:
+            bg_id, text_id = self._ctrl_btn_ids[tag]
+            self._canvas.itemconfig(bg_id, fill=self._get_btn_color(tag))
+            self._canvas.itemconfig(text_id, fill='#cccccc')
+
+        # Skip restore when hover-locked (no preview was shown)
+        if self._hover_locked:
+            return
+
+        # Restore emotion for all control buttons
+        if tag in ('ctrl_tts', 'ctrl_stt', 'ctrl_close', 'ctrl_tags'):
+            self._restore_emotion()
 
     def _open_tag_editor(self, event: tk.Event | None = None) -> None:
         """Open the tag editor dialog for the currently displayed image.
 
         Finds the ImageEntry matching the current avatar path and opens
         a TagEditorDialog populated with all known tags in the registry.
+        Fully error-guarded to prevent crashes from killing the widget.
 
         Args:
             event: Optional Tkinter event (from canvas click binding).
         """
+        logger.debug('[AVATAR] Tag editor requested')
+
+        # Prevent opening multiple dialogs simultaneously
+        if self._tag_editor_open:
+            logger.debug('[TAGS] Tag editor already open, ignoring')
+            return
+
         if not self.current_avatar_path or not self._image_registry:
             logger.warning('[TAGS] No current image or empty registry')
             return
 
-        # Find the ImageEntry for the current image
-        current_entry: ImageEntry | None = None
-        for img in self._image_registry:
-            if img.path == self.current_avatar_path or img.path.resolve() == self.current_avatar_path.resolve():
-                current_entry = img
-                break
+        try:
+            # Find the ImageEntry for the current image
+            current_entry: ImageEntry | None = None
+            for img in self._image_registry:
+                if img.path == self.current_avatar_path:
+                    current_entry = img
+                    break
+                # Fall back to resolved path comparison (guard against OSError)
+                with contextlib.suppress(OSError):
+                    if img.path.resolve() == self.current_avatar_path.resolve():
+                        current_entry = img
+                        break
 
-        if current_entry is None:
-            logger.warning(f'[TAGS] Current image not in registry: {self.current_avatar_path}')
-            return
+            if current_entry is None:
+                logger.warning(f'[TAGS] Current image not in registry: {self.current_avatar_path}')
+                return
 
-        # Collect all tags across the entire registry
-        all_tags: set[str] = set()
-        for img in self._image_registry:
-            all_tags.update(img.tags)
+            # Collect all tags across the entire registry
+            all_tags: set[str] = set()
+            for img in self._image_registry:
+                all_tags.update(img.tags)
 
-        # Also include all known valid tags so user can add new ones
-        all_tags.update(VALID_EMOTIONS)
-        all_tags.update(VALID_CONTROL_TAGS)
+            # Also include all known valid tags so user can add new ones
+            all_tags.update(VALID_EMOTIONS)
+            all_tags.update(VALID_CONTROL_TAGS)
 
-        # Open dialog
-        TagEditorDialog(
-            self._root,
-            current_entry,
-            all_tags,
-            lambda new_tags: self._save_image_tags(current_entry, new_tags),
-        )
-        logger.info(f'[TAGS] Opened editor for: {current_entry.path.name}')
+            self._tag_editor_open = True
+
+            # Open dialog
+            dialog = TagEditorDialog(
+                self._root,
+                current_entry,
+                all_tags,
+                lambda new_tags: self._save_image_tags(current_entry, new_tags),
+            )
+
+            # Reset guard when dialog is destroyed (save or cancel)
+            dialog.dialog.bind('<Destroy>', lambda e: setattr(self, '_tag_editor_open', False))
+
+            logger.info(f'[TAGS] Opened editor for: {current_entry.path.name}')
+        except Exception as e:
+            self._tag_editor_open = False
+            logger.error(f'[TAGS] Failed to open tag editor: {e}', exc_info=True)
 
     def _save_image_tags(self, image_entry: ImageEntry, new_tags: list[str]) -> None:
         """Save updated tags for an image to both memory and config file.
@@ -1590,11 +2128,11 @@ class AvatarWidget:
             )
 
     # ========================================================================
-    # Control Buttons
+    # Control Buttons (canvas-based overlays at bottom of avatar)
     # ========================================================================
 
     def _show_buttons(self) -> None:
-        """Show control buttons at bottom of avatar."""
+        """Show control buttons at bottom of avatar as canvas overlays."""
         if self._buttons_visible:
             return
 
@@ -1602,24 +2140,56 @@ class AvatarWidget:
         if sys.platform == 'win32':
             self._disable_click_through()
 
-        # Create button frame if not exists
-        if self._button_frame is None:
-            self._button_frame = self._create_button_frame()
+        # Button layout: 4 buttons centered at bottom of canvas
+        btn_w, btn_h = 40, 28
+        gap = 6
+        num_buttons = 4
+        total_w = num_buttons * btn_w + (num_buttons - 1) * gap
+        canvas_w = self._canvas.winfo_width()
+        canvas_h = self._canvas.winfo_height()
+        start_x = (canvas_w - total_w) // 2
+        y = canvas_h - btn_h - 10  # 10px margin from bottom
 
-        self._button_frame.pack(side=tk.BOTTOM, pady=5)
+        # TTS toggle button (green when enabled, red when disabled)
+        tts_icon = '\U0001f50a' if self._tts_enabled else '\U0001f507'
+        tts_color = BTN_COLOR_ACTIVE if self._tts_enabled else BTN_COLOR_INACTIVE
+        self._ctrl_btn_ids['ctrl_tts'] = self._create_canvas_button(
+            start_x, y, btn_w, btn_h, tts_icon, 'ctrl_tts', self._toggle_tts, tts_color,
+        )
+
+        # STT toggle button (green when enabled, red when disabled)
+        stt_icon = '\U0001f3a4' if self._stt_enabled else '\U0001f507'
+        stt_color = BTN_COLOR_ACTIVE if self._stt_enabled else BTN_COLOR_INACTIVE
+        x2 = start_x + btn_w + gap
+        self._ctrl_btn_ids['ctrl_stt'] = self._create_canvas_button(
+            x2, y, btn_w, btn_h, stt_icon, 'ctrl_stt', self._toggle_stt, stt_color,
+        )
+
+        # Tag editor button (neutral)
+        x3 = x2 + btn_w + gap
+        self._ctrl_btn_ids['ctrl_tags'] = self._create_canvas_button(
+            x3, y, btn_w, btn_h, '\U0001f3f7\ufe0f', 'ctrl_tags', self._open_tag_editor,
+        )
+
+        # Close button (far right, neutral)
+        x4 = x3 + btn_w + gap
+        self._ctrl_btn_ids['ctrl_close'] = self._create_canvas_button(
+            x4, y, btn_w, btn_h, '\u274c', 'ctrl_close', self._close_with_animation,
+        )
+
         self._buttons_visible = True
-        logger.debug('Control buttons shown')
+        logger.debug('[AVATAR] Control buttons shown (4 canvas buttons at bottom)')
 
     def _hide_buttons(self) -> None:
-        """Hide control buttons and tag editor button."""
+        """Hide all canvas control buttons."""
         if not self._buttons_visible:
             return
 
-        if self._button_frame:
-            self._button_frame.pack_forget()
+        for tag in list(self._ctrl_btn_ids.keys()):
+            self._canvas.delete(tag)
+        self._ctrl_btn_ids.clear()
 
         self._buttons_visible = False
-        self._hide_tag_button()
 
         # Re-enable click-through when hiding buttons
         if sys.platform == 'win32':
@@ -1629,91 +2199,65 @@ class AvatarWidget:
         if self._preview_active:
             self._restore_emotion()
 
-        logger.debug('Control buttons hidden')
-
-    def _create_button_frame(self) -> tk.Frame:
-        """Create the control button frame.
-
-        Returns:
-            Frame containing TTS, STT, and Close buttons.
-        """
-        frame = tk.Frame(self._root, bg=self._transparent_color)
-
-        # Bind hover events to frame to track when mouse is over buttons
-        frame.bind('<Enter>', lambda e: setattr(self, '_mouse_over_buttons', True))
-        frame.bind('<Leave>', lambda e: setattr(self, '_mouse_over_buttons', False))
-
-        # TTS toggle button
-        self._tts_button = tk.Button(
-            frame,
-            text='🔊' if self._tts_enabled else '🔇',
-            command=self._toggle_tts,
-            bg='#2a2a2a',
-            fg='white',
-            relief='flat',
-            font=('Segoe UI Emoji', 14),
-            width=3,
-            cursor='hand2'
-        )
-        self._tts_button.bind('<Enter>', lambda e: self._preview_image('tts'))
-        self._tts_button.bind('<Leave>', lambda e: self._restore_emotion())
-        self._tts_button.pack(side='left', padx=2)
-
-        # STT toggle button
-        self._stt_button = tk.Button(
-            frame,
-            text='🎤' if self._stt_enabled else '🔇',
-            command=self._toggle_stt,
-            bg='#2a2a2a',
-            fg='white',
-            relief='flat',
-            font=('Segoe UI Emoji', 14),
-            width=3,
-            cursor='hand2'
-        )
-        self._stt_button.bind('<Enter>', lambda e: self._preview_image('stt'))
-        self._stt_button.bind('<Leave>', lambda e: self._restore_emotion())
-        self._stt_button.pack(side='left', padx=2)
-
-        # Close button
-        close_button = tk.Button(
-            frame,
-            text='❌',
-            command=self._close_with_animation,
-            bg='#2a2a2a',
-            fg='white',
-            relief='flat',
-            font=('Segoe UI Emoji', 14),
-            width=3,
-            cursor='hand2'
-        )
-        close_button.bind('<Enter>', lambda e: self._preview_image('close'))
-        close_button.bind('<Leave>', lambda e: self._restore_emotion())
-        close_button.pack(side='left', padx=2)
-
-        return frame
+        logger.debug('[AVATAR] Control buttons hidden')
 
     def _preview_image(self, control_type: str) -> None:
-        """Show preview image for hovered button.
+        """Show a contextual avatar image when hovering over a control button.
+
+        Uses BUTTON_HOVER_TAGS with tag-based registry lookup to find an avatar
+        that visually communicates the button's function (e.g., headphones for
+        TTS, listening pose for STT).
 
         Args:
-            control_type: Type of control ('tts', 'stt', or 'close').
+            control_type: Type of control ('tts', 'stt', 'close', or 'tags').
         """
         if not self._preview_active:
             self._preview_emotion = self.current_emotion
             self._preview_active = True
 
-        # Determine preview image based on control type (functional tag names)
+        # Tags button keeps the current image visible (no preview)
+        if control_type == 'tags':
+            return
+
+        # Determine tag to search for based on button type and state
         if control_type == 'tts':
-            control_tag = 'control-tts-hover-on' if self._tts_enabled else 'control-tts-hover-off'
+            avatar_key = 'tts_on' if self._tts_enabled else 'tts_off'
         elif control_type == 'stt':
-            control_tag = 'control-stt-hover-on' if self._stt_enabled else 'control-stt-hover-off'
+            avatar_key = 'stt_on' if self._stt_enabled else 'stt_off'
         elif control_type == 'close':
-            control_tag = 'control-close-hover'
+            avatar_key = 'close'
         else:
             return
 
-        self._load_control_image(control_tag)
+        # Tag-based lookup from image registry (if hover tag is configured)
+        hover_tag = BUTTON_HOVER_TAGS.get(avatar_key)
+        if hover_tag and self._image_registry:
+            matching = [
+                img for img in self._image_registry
+                if hover_tag.lower() in img.tag_set
+            ]
+            if matching:
+                # Pick a random match for visual variety
+                chosen = random.choice(matching)
+                self._display_variant(chosen.path)
+                logger.debug(
+                    f'[AVATAR] Button hover preview: {chosen.path.name} '
+                    f'(tag={hover_tag}, key={avatar_key})'
+                )
+                return
+
+        # Fall back to control-tag system with state-aware tag name
+        # Maps avatar_key (e.g., 'tts_on') to control tag (e.g., 'control-tts-hover-on')
+        control_tag_map = {
+            'tts_on': 'control-tts-hover-on',
+            'tts_off': 'control-tts-hover-off',
+            'stt_on': 'control-stt-hover-on',
+            'stt_off': 'control-stt-hover-off',
+            'close': 'control-close-hover',
+        }
+        fallback_tag = control_tag_map.get(avatar_key, f'control-{control_type}-hover')
+        logger.debug(f'[AVATAR] Trying control tag fallback: {fallback_tag}')
+        self._load_control_image(fallback_tag)
 
     def _restore_emotion(self) -> None:
         """Restore previous emotion after preview."""
@@ -1722,8 +2266,10 @@ class AvatarWidget:
             emotion_to_restore = self._preview_emotion
             self._preview_emotion = None
 
-            # Force switch back to previous emotion
-            self.current_emotion = ''  # Reset to force update
+            # Force switch back to previous emotion by clearing variant cache
+            # and using the existing path reset instead of setting current_emotion
+            # to empty string (which races with emotion polling every 200ms).
+            self.current_avatar_path = None  # Forces _switch_emotion guard to pass
             self._switch_emotion(emotion_to_restore)
 
     def _load_control_image(self, control_tag: str) -> None:
@@ -1799,7 +2345,9 @@ class AvatarWidget:
         """Toggle TTS enabled/disabled state."""
         self._tts_enabled = not self._tts_enabled
         self._write_tts_state(self._tts_enabled)
-        self._update_button_icon(self._tts_button, self._tts_enabled, '🔊', '🔇')
+        self._update_canvas_button_icon(
+            'ctrl_tts', self._tts_enabled, '\U0001f50a', '\U0001f507',
+        )
         self._show_feedback('tts')
         logger.info(f'TTS {"enabled" if self._tts_enabled else "disabled"}')
 
@@ -1807,28 +2355,43 @@ class AvatarWidget:
         """Toggle STT enabled/disabled state."""
         self._stt_enabled = not self._stt_enabled
         self._write_stt_state(self._stt_enabled)
-        self._update_button_icon(self._stt_button, self._stt_enabled, '🎤', '🔇')
+        self._update_canvas_button_icon(
+            'ctrl_stt', self._stt_enabled, '\U0001f3a4', '\U0001f507',
+        )
         self._show_feedback('stt')
         logger.info(f'STT {"enabled" if self._stt_enabled else "disabled"}')
 
-    def _update_button_icon(self, button: tk.Button | None, enabled: bool, on_icon: str, off_icon: str) -> None:
-        """Update button icon based on state.
+    def _update_canvas_button_icon(
+        self, tag: str, enabled: bool, on_icon: str, off_icon: str,
+    ) -> None:
+        """Update canvas button text and background color based on enabled state.
 
         Args:
-            button: Button widget to update.
+            tag: Canvas tag identifying the button.
             enabled: Whether the feature is enabled.
             on_icon: Icon to show when enabled.
             off_icon: Icon to show when disabled.
         """
-        if button:
-            button.config(text=on_icon if enabled else off_icon)
+        if tag in self._ctrl_btn_ids:
+            bg_id, text_id = self._ctrl_btn_ids[tag]
+            self._canvas.itemconfig(text_id, text=on_icon if enabled else off_icon)
+            self._canvas.itemconfig(
+                bg_id, fill=BTN_COLOR_ACTIVE if enabled else BTN_COLOR_INACTIVE,
+            )
 
     def _show_feedback(self, feedback_type: str) -> None:
         """Show confirmation image for 1 second, then restore emotion.
 
+        Sets up preview state so _restore_emotion can properly revert
+        to the previous emotion after the feedback image is shown.
+
         Args:
             feedback_type: Type of feedback ('tts' or 'stt').
         """
+        if not self._preview_active:
+            self._preview_emotion = self.current_emotion
+            self._preview_active = True
+
         control_tag = f'control-{feedback_type}-clicked'
         self._load_control_image(control_tag)
         self._root.after(1000, self._restore_emotion)
@@ -1840,12 +2403,15 @@ class AvatarWidget:
             enabled: Whether TTS is enabled.
         """
         if self.monitor_pid is None:
+            logger.warning('[AVATAR] Cannot write TTS state: no monitor PID')
             return
 
         state_file = Path(tempfile.gettempdir()) / f'pyagentvox_tts_enabled_{self.monitor_pid}.txt'
-        with contextlib.suppress(OSError):
+        try:
             state_file.write_text('1' if enabled else '0', encoding='utf-8')
-            logger.debug(f'Wrote TTS state: {enabled}')
+            logger.info(f'[AVATAR] Wrote TTS state: {"enabled" if enabled else "disabled"} -> {state_file}')
+        except OSError as e:
+            logger.error(f'[AVATAR] Failed to write TTS state: {e}')
 
     def _write_stt_state(self, enabled: bool) -> None:
         """Write STT enabled state to IPC file.
@@ -1854,31 +2420,52 @@ class AvatarWidget:
             enabled: Whether STT is enabled.
         """
         if self.monitor_pid is None:
+            logger.warning('[AVATAR] Cannot write STT state: no monitor PID')
             return
 
         state_file = Path(tempfile.gettempdir()) / f'pyagentvox_stt_enabled_{self.monitor_pid}.txt'
-        with contextlib.suppress(OSError):
+        try:
             state_file.write_text('1' if enabled else '0', encoding='utf-8')
-            logger.debug(f'Wrote STT state: {enabled}')
+            logger.info(f'[AVATAR] Wrote STT state: {"enabled" if enabled else "disabled"} -> {state_file}')
+        except OSError as e:
+            logger.error(f'[AVATAR] Failed to write STT state: {e}')
 
     def _close_with_animation(self) -> None:
-        """Show crying animation and slide avatar down off screen."""
-        # Show close animation image
+        """Show crying Luna and animate slide-down with fade-out.
+
+        Crying Luna is the ONLY image shown during the exit sequence.
+        The slide starts slow and accelerates (ease-in), while the
+        window fades out at the same rate as the slide.
+        """
+        # Hide control buttons so only crying image is visible
+        self._hide_buttons()
+
+        # Show close animation image (crying Luna)
         self._load_control_image('control-close-animation')
         self._root.update()
         time.sleep(0.5)
 
-        # Animate slide down
-        steps = 30
-        distance = 300
-        delay = 0.033  # ~30 FPS
+        # Animate slide-down with simultaneous fade-out using ease-in curve
+        steps = 40
+        distance = 350
+        total_duration = 1.2  # seconds
+        delay = total_duration / steps
 
         start_x = self._root.winfo_x()
         start_y = self._root.winfo_y()
 
         for i in range(steps):
-            offset = int((distance / steps) * i)
+            # Ease-in (cubic): slow start, accelerating exit
+            t = i / steps
+            eased = t * t * t
+
+            offset = int(distance * eased)
+            alpha = max(0.0, 1.0 - eased)
+
             self._root.geometry(f'+{start_x}+{start_y + offset}')
+            if sys.platform == 'win32':
+                with contextlib.suppress(tk.TclError):
+                    self._root.attributes('-alpha', alpha)
             self._root.update()
             time.sleep(delay)
 
@@ -1943,7 +2530,11 @@ class AvatarWidget:
                 self._variant_cache.clear()
 
                 # Refresh current emotion display with new filters
-                self._switch_emotion(self.current_emotion)
+                # (bypass _switch_emotion guard which blocks same-emotion transitions)
+                variants = self._get_variants(self.current_emotion)
+                if variants:
+                    self._current_variant_index = 0
+                    self._display_variant(variants[0])
 
                 # Delete control file
                 filter_file.unlink()
@@ -1977,26 +2568,62 @@ class AvatarWidget:
                 is_speaking = emotion not in [WAITING_STATE, 'bored', 'sleeping']
 
                 if is_speaking and not self._is_speaking:
-                    # TTS started speaking - reset idle timer
+                    # TTS started speaking - reset idle timer and show indicator
                     self._is_speaking = True
                     self._reset_idle_timer()
+                    self._show_speaking_indicator()
+                    logger.debug(f'[AVATAR] TTS started speaking: {emotion}')
                 elif not is_speaking and self._is_speaking:
-                    # TTS stopped speaking - start idle timer
+                    # TTS stopped speaking - start idle timer and hide indicator
                     self._is_speaking = False
                     self._start_idle_timer()
+                    self._hide_speaking_indicator()
+                    logger.debug(f'[AVATAR] TTS stopped speaking, entering: {emotion}')
 
-                # Resolve emotion through hierarchy if needed
-                resolved_emotion = resolve_emotion_hierarchy(emotion, self.avatar_dir)
+                # Only resolve emotion if it changed from last poll (avoid redundant discover_variants calls)
+                if not hasattr(self, '_last_raw_emotion'):
+                    self._last_raw_emotion = ''
 
-                if resolved_emotion != self.current_emotion:
-                    logger.debug(f'Emotion file changed: {emotion} -> {resolved_emotion}')
-                    self._fade_transition(resolved_emotion)
+                if emotion != self._last_raw_emotion:
+                    # Resolve emotion through hierarchy if needed
+                    resolved_emotion = resolve_emotion_hierarchy(emotion, self.avatar_dir)
+                    self._last_raw_emotion = emotion
+
+                    if resolved_emotion != self.current_emotion:
+                        logger.debug(f'[AVATAR] Emotion file changed: {emotion} -> {resolved_emotion}')
+                        self._fade_transition(resolved_emotion)
         except Exception as e:
-            logger.error(f'Error polling emotion file: {e}')
+            logger.error(f'[AVATAR] Error polling emotion file: {e}')
 
         # Schedule next poll
         if self._running:
             self._root.after(EMOTION_POLL_INTERVAL_MS, self._poll_emotion_file)
+
+    # ========================================================================
+    # Visibility Guard
+    # ========================================================================
+
+    def _guard_visibility(self) -> None:
+        """Periodically re-assert topmost and visibility state.
+
+        On Windows 11, other applications or system events can occasionally
+        push the avatar behind other windows. This guard runs every 5 seconds
+        to ensure the widget stays visible and on top.
+        """
+        if not self._running:
+            return
+
+        try:
+            # Re-assert topmost (cheap no-op if already topmost)
+            self._root.attributes('-topmost', False)
+            self._root.attributes('-topmost', True)
+            self._root.lift()
+        except tk.TclError:
+            pass
+
+        # Schedule next guard check
+        if self._running:
+            self._root.after(5000, self._guard_visibility)
 
     # ========================================================================
     # Lifecycle
@@ -2009,27 +2636,41 @@ class AvatarWidget:
         """
         # Start polling emotion file if monitoring a PID
         if self.monitor_pid is not None:
+            emotion_file = get_emotion_file_path(self.monitor_pid)
+            logger.info(f'[AVATAR] Monitoring emotion file: {emotion_file}')
+            logger.debug(f'[AVATAR] Emotion file exists: {emotion_file.exists()}')
             self._root.after(EMOTION_POLL_INTERVAL_MS, self._poll_emotion_file)
-            logger.info(f'Monitoring emotion file for PID {self.monitor_pid}')
 
             # Start polling filter control file
+            filter_file = get_filter_control_file_path(self.monitor_pid)
+            logger.debug(f'[AVATAR] Monitoring filter control file: {filter_file}')
             self._root.after(FILTER_POLL_INTERVAL_MS, self._poll_filter_control_file)
-            logger.info(f'Monitoring filter control file for PID {self.monitor_pid}')
 
         # Start idle timer for bored/sleeping transitions
         self._start_idle_timer()
 
-        logger.info('Avatar widget running (right-click to close)')
+        # Start periodic visibility guard (re-asserts topmost)
+        self._root.after(5000, self._guard_visibility)
+
+        # Final visibility check before entering mainloop
+        logger.debug(f'[AVATAR] Window state before mainloop: {self._root.state()}')
+        logger.debug(f'[AVATAR] Window alpha: {self._root.attributes("-alpha")}')
+        logger.debug(f'[AVATAR] Window geometry: {self._root.geometry()}')
+        logger.info('[AVATAR] Starting tkinter mainloop (right-click to close)')
 
         try:
             self._root.mainloop()
         except KeyboardInterrupt:
-            logger.info('Avatar widget interrupted')
+            logger.info('[AVATAR] Widget interrupted by KeyboardInterrupt')
+        except Exception as e:
+            logger.error(f'[AVATAR] Mainloop crashed: {e}', exc_info=True)
         finally:
             self._running = False
+            logger.debug('[AVATAR] Mainloop exited')
 
     def stop(self) -> None:
         """Stop the avatar widget and save position."""
+        logger.info('[AVATAR] Stopping avatar widget...')
         self._running = False
 
         # Cancel variant cycling
@@ -2049,6 +2690,24 @@ class AvatarWidget:
             with contextlib.suppress(tk.TclError):
                 self._root.after_cancel(self._filter_poll_after_id)
             self._filter_poll_after_id = None
+
+        # Cancel any in-progress fade animation
+        if self._fade_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._fade_after_id)
+            self._fade_after_id = None
+
+        # Cancel any in-progress shimmer animation
+        if self._shimmer_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._shimmer_after_id)
+            self._shimmer_after_id = None
+
+        # Cancel speaking indicator animation
+        if self._speaking_anim_after_id is not None:
+            with contextlib.suppress(tk.TclError):
+                self._root.after_cancel(self._speaking_anim_after_id)
+            self._speaking_anim_after_id = None
 
         # Clean up control state files
         if self.monitor_pid is not None:
@@ -2202,6 +2861,7 @@ def print_avatar_scan(avatar_dir: Path | None = None) -> None:
 def main() -> None:
     """Run the avatar widget standalone or scan for available emotions."""
     import argparse
+    import traceback
 
     parser = argparse.ArgumentParser(description='Luna Avatar Widget')
     parser.add_argument(
@@ -2230,6 +2890,13 @@ def main() -> None:
         format='%(asctime)s [%(levelname)s] %(message)s',
     )
 
+    logger.info(f'[AVATAR] Starting avatar widget (PID: {os.getpid()})')
+    logger.debug(f'[AVATAR] Args: size={args.size}, avatar_dir={args.avatar_dir}, '
+                 f'pid={args.pid}, debug={args.debug}')
+    logger.debug(f'[AVATAR] Python: {sys.version}')
+    logger.debug(f'[AVATAR] Platform: {sys.platform}')
+    logger.debug(f'[AVATAR] CWD: {Path.cwd()}')
+
     avatar_dir = Path(args.avatar_dir) if args.avatar_dir else None
 
     # Scan mode: show available emotions and exit
@@ -2237,13 +2904,19 @@ def main() -> None:
         print_avatar_scan(avatar_dir)
         return
 
-    # Normal mode: launch widget
-    widget = AvatarWidget(
-        avatar_dir=avatar_dir,
-        size=args.size,
-        monitor_pid=args.pid,
-    )
-    widget.run()
+    # Normal mode: launch widget with full error trapping
+    try:
+        widget = AvatarWidget(
+            avatar_dir=avatar_dir,
+            size=args.size,
+            monitor_pid=args.pid,
+        )
+        widget.run()
+    except Exception as e:
+        logger.error(f'[AVATAR] Fatal error: {e}', exc_info=True)
+        # Also print to stderr in case logging is broken
+        traceback.print_exc(file=sys.stderr)
+        raise SystemExit(1) from e
 
 
 if __name__ == '__main__':

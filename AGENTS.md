@@ -12,12 +12,26 @@ PyAgentVox enables **two-way voice communication** between you (the AI) and your
 
 ## 🚀 Quick Setup (For Your Human's Project)
 
+### Step 0: Collect User Preferences First
+
+**Ask your human these questions BEFORE running any commands.** You need this info to configure PyAgentVox correctly.
+
+| # | Question | Options | Default |
+|---|----------|---------|---------|
+| 1 | **Which voice profile do you prefer?** | `michelle` (empathetic), `jenny` (energetic), `emma` (warm), `aria`/`ava` (professional), `sonia`/`libby` (British) | `michelle` |
+| 2 | **Do you want to use speech-to-text?** (speak to Claude with your voice) | Yes = full mode, No = TTS-only (AI speaks, you type) | TTS-only |
+| 3 | **How noisy is your environment?** *(only if using STT)* | Quiet → sensitivity 1000-3000, Normal → 4000, Noisy → 5000-8000 | 4000 |
+
+**Once you have answers**, proceed with setup. Use the profile and mode in Step 4 below.
+
+> **Example opener:** "I'm going to set up PyAgentVox voice for you. Quick question - which voice profile do you like? Options are: Michelle (sweet/empathetic), Jenny (energetic), Emma (warm), or a few British voices. And will you be speaking to me with your mic, or would you prefer I just speak to you while you type?"
+
 ### Prerequisites Check
 
 Before starting, verify your human has:
 - Python 3.10+ installed
 - Windows OS (voice injector requires win32gui)
-- Microphone connected
+- Microphone connected (only needed for STT - can skip for TTS-only)
 - Internet connection (for TTS and speech recognition)
 
 ### Step 1: Install PyAgentVox
@@ -76,20 +90,20 @@ All skills are ready to use immediately - no configuration needed!
 
 ### Step 4: Start Voice Communication
 
-From your conversation interface:
+Use the profile and mode you collected in Step 0:
 
 ```bash
-# Using skills
-/voice michelle tts-only    # Start with Michelle voice, no microphone
-/voice jenny                # Start with Jenny voice, full mode
-/voice-stop                 # Stop PyAgentVox
+# TTS-only (no microphone) - recommended for most users
+/voice michelle tts-only    # Replace "michelle" with chosen profile
 
-# OR manually via CLI
-python -m pyagentvox start --profile michelle --tts-only
-python -m pyagentvox stop
+# Full mode (microphone + TTS)
+/voice jenny                # Replace "jenny" with chosen profile
+
+# Stop voice when done
+/voice-stop
 ```
 
-That's it! Voice communication is now active.
+That's it! Voice communication is now active. After starting, tell your human which emotion tags you'll use and invite them to speak (if in full mode).
 
 ## 📋 CLI Reference (Essential Commands)
 
@@ -658,10 +672,10 @@ Once complete, you're ready for full two-way voice interaction! 🎉
 ## 📚 Additional Resources
 
 ### Documentation
-- **[SETUP.md](SETUP.md)** - Detailed setup for humans
-- **[USAGE.md](USAGE.md)** - CLI reference and configuration
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command cheat sheet
 - **[README.md](README.md)** - Project overview
+- **[SETUP.md](SETUP.md)** - Detailed setup guide for humans
+- **[USAGE.md](USAGE.md)** - Full CLI reference and configuration
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command cheat sheet
 
 ### Skills Documentation
 Each skill has a `skill.md` file with detailed usage:

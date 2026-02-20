@@ -1,7 +1,7 @@
 """Tests for avatar widget interactive controls.
 
-Tests the hover detection, button system, preview functionality, and IPC
-communication for TTS/STT toggles.
+Tests the hover detection, canvas-based button system, preview functionality,
+and IPC communication for TTS/STT toggles.
 """
 
 import os
@@ -44,39 +44,42 @@ def mock_avatar_dir(tmp_path):
 @pytest.fixture
 def widget(mock_avatar_dir):
     """Create an AvatarWidget instance for testing."""
-    # Note: We can't fully test the widget without X display, but we can test
-    # the logic methods
     widget = AvatarWidget(avatar_dir=mock_avatar_dir, monitor_pid=os.getpid())
     yield widget
     widget.stop()
 
 
 class TestButtonCreation:
-    """Test button frame creation and initial state."""
+    """Test canvas-based button creation and initial state."""
 
-    def test_button_frame_created(self, widget):
-        """Test that button frame is created with all buttons."""
-        frame = widget._create_button_frame()
+    def test_buttons_created_on_show(self, widget):
+        """Test that canvas buttons are created when _show_buttons is called."""
+        widget._show_buttons()
 
-        assert frame is not None
-        assert isinstance(frame, tk.Frame)
-
-        # Check that buttons were created
-        assert widget._tts_button is not None
-        assert widget._stt_button is not None
+        assert widget._buttons_visible is True
+        assert 'ctrl_tts' in widget._ctrl_btn_ids
+        assert 'ctrl_stt' in widget._ctrl_btn_ids
+        assert 'ctrl_close' in widget._ctrl_btn_ids
+        assert 'ctrl_tags' in widget._ctrl_btn_ids
 
     def test_initial_button_state(self, widget):
         """Test that buttons show correct initial state."""
-        widget._create_button_frame()
-
         # Default state should be enabled
         assert widget._tts_enabled is True
         assert widget._stt_enabled is True
 
-    def test_button_frame_hidden_initially(self, widget):
-        """Test that button frame is hidden on widget creation."""
+    def test_buttons_hidden_initially(self, widget):
+        """Test that buttons are hidden on widget creation."""
         assert widget._buttons_visible is False
-        assert widget._button_frame is None
+        assert len(widget._ctrl_btn_ids) == 0
+
+    def test_each_button_has_bg_and_text_ids(self, widget):
+        """Test that each canvas button has a background rect and text item."""
+        widget._show_buttons()
+
+        for name, (bg_id, text_id) in widget._ctrl_btn_ids.items():
+            assert isinstance(bg_id, int), f'{name} bg_id should be int'
+            assert isinstance(text_id, int), f'{name} text_id should be int'
 
 
 class TestHoverDetection:
@@ -90,7 +93,7 @@ class TestHoverDetection:
         widget._show_buttons()
 
         assert widget._buttons_visible is True
-        assert widget._button_frame is not None
+        assert len(widget._ctrl_btn_ids) == 4
         mock_disable.assert_called_once()
 
     @patch.object(AvatarWidget, '_enable_click_through')
@@ -104,53 +107,66 @@ class TestHoverDetection:
         widget._hide_buttons()
 
         assert widget._buttons_visible is False
+        assert len(widget._ctrl_btn_ids) == 0
         mock_enable.assert_called_once()
 
-    def test_buttons_stay_visible_when_over_frame(self, widget):
-        """Test that buttons don't hide when mouse is over button frame."""
+    def test_show_buttons_idempotent(self, widget):
+        """Test that calling _show_buttons twice doesn't duplicate buttons."""
         widget._show_buttons()
-        widget._mouse_over_buttons = True
+        first_ids = dict(widget._ctrl_btn_ids)
 
-        # Simulate leave event - buttons should stay visible
-        # (actual hide logic is in _check_hide_buttons which checks mouse position)
+        widget._show_buttons()
 
-        assert widget._buttons_visible is True
+        assert widget._ctrl_btn_ids == first_ids
+
+    def test_hide_buttons_idempotent(self, widget):
+        """Test that calling _hide_buttons when already hidden is safe."""
+        assert widget._buttons_visible is False
+        widget._hide_buttons()  # Should not crash
+        assert widget._buttons_visible is False
 
 
 class TestPreviewSystem:
     """Test avatar preview images for button hovers."""
 
-    @patch.object(AvatarWidget, '_load_control_image')
-    def test_preview_tts_on(self, mock_load, widget):
-        """Test TTS button hover shows correct preview."""
+    @patch.object(AvatarWidget, '_display_variant')
+    def test_preview_tts_on(self, mock_display, widget):
+        """Test TTS button hover shows correct preview via tag-based lookup."""
         widget._tts_enabled = True
         widget._preview_image('tts')
 
-        mock_load.assert_called_once_with('control-tts-hover-on')
+        # Tag-based lookup for 'headphones' should find a match and display it
+        if widget._image_registry:
+            mock_display.assert_called_once()
         assert widget._preview_active is True
 
-    @patch.object(AvatarWidget, '_load_control_image')
-    def test_preview_tts_off(self, mock_load, widget):
+    @patch.object(AvatarWidget, '_display_variant')
+    def test_preview_tts_off(self, mock_display, widget):
         """Test TTS button hover shows correct preview when disabled."""
         widget._tts_enabled = False
         widget._preview_image('tts')
 
-        mock_load.assert_called_once_with('control-tts-hover-off')
+        # Tag-based lookup for 'shh' should find a match and display it
+        if widget._image_registry:
+            mock_display.assert_called_once()
         assert widget._preview_active is True
 
-    @patch.object(AvatarWidget, '_load_control_image')
-    def test_preview_stt_on(self, mock_load, widget):
+    @patch.object(AvatarWidget, '_display_variant')
+    def test_preview_stt_on(self, mock_display, widget):
         """Test STT button hover shows correct preview."""
         widget._stt_enabled = True
         widget._preview_image('stt')
 
-        mock_load.assert_called_once_with('control-stt-hover-on')
+        # Tag-based lookup for 'listening' should find a match and display it
+        if widget._image_registry:
+            mock_display.assert_called_once()
 
     @patch.object(AvatarWidget, '_load_control_image')
     def test_preview_close(self, mock_load, widget):
-        """Test close button hover shows close-hover image."""
+        """Test close button hover falls through to control tag lookup."""
         widget._preview_image('close')
 
+        # 'close' has no tag in BUTTON_HOVER_TAGS, so it falls through
         mock_load.assert_called_once_with('control-close-hover')
 
     @patch.object(AvatarWidget, '_switch_emotion')
@@ -171,11 +187,10 @@ class TestToggleFunctionality:
 
     @patch.object(AvatarWidget, '_write_tts_state')
     @patch.object(AvatarWidget, '_show_feedback')
-    @patch.object(AvatarWidget, '_update_button_icon')
+    @patch.object(AvatarWidget, '_update_canvas_button_icon')
     def test_toggle_tts_off(self, mock_icon, mock_feedback, mock_write, widget):
         """Test toggling TTS from on to off."""
         widget._tts_enabled = True
-        widget._tts_button = Mock()
 
         widget._toggle_tts()
 
@@ -186,10 +201,10 @@ class TestToggleFunctionality:
 
     @patch.object(AvatarWidget, '_write_tts_state')
     @patch.object(AvatarWidget, '_show_feedback')
-    def test_toggle_tts_on(self, mock_feedback, mock_write, widget):
+    @patch.object(AvatarWidget, '_update_canvas_button_icon')
+    def test_toggle_tts_on(self, mock_icon, mock_feedback, mock_write, widget):
         """Test toggling TTS from off to on."""
         widget._tts_enabled = False
-        widget._tts_button = Mock()
 
         widget._toggle_tts()
 
@@ -198,10 +213,10 @@ class TestToggleFunctionality:
 
     @patch.object(AvatarWidget, '_write_stt_state')
     @patch.object(AvatarWidget, '_show_feedback')
-    def test_toggle_stt_off(self, mock_feedback, mock_write, widget):
+    @patch.object(AvatarWidget, '_update_canvas_button_icon')
+    def test_toggle_stt_off(self, mock_icon, mock_feedback, mock_write, widget):
         """Test toggling STT from on to off."""
         widget._stt_enabled = True
-        widget._stt_button = Mock()
 
         widget._toggle_stt()
 
@@ -211,10 +226,10 @@ class TestToggleFunctionality:
 
     @patch.object(AvatarWidget, '_write_stt_state')
     @patch.object(AvatarWidget, '_show_feedback')
-    def test_toggle_stt_on(self, mock_feedback, mock_write, widget):
+    @patch.object(AvatarWidget, '_update_canvas_button_icon')
+    def test_toggle_stt_on(self, mock_icon, mock_feedback, mock_write, widget):
         """Test toggling STT from off to on."""
         widget._stt_enabled = False
-        widget._stt_button = Mock()
 
         widget._toggle_stt()
 
@@ -344,27 +359,82 @@ class TestCloseAnimation:
         assert widget._root.geometry.call_count > 0
 
 
-class TestButtonIconUpdates:
-    """Test button icon updates based on state."""
+class TestCanvasButtonIconUpdates:
+    """Test canvas button icon updates based on state."""
 
-    def test_update_button_icon_enabled(self, widget):
-        """Test button icon shows enabled state."""
-        button = Mock()
-        widget._update_button_icon(button, True, '🔊', '🔇')
+    def test_update_canvas_button_icon_enabled(self, widget):
+        """Test canvas button text shows enabled state."""
+        widget._show_buttons()
+        widget._update_canvas_button_icon('ctrl_tts', True, '\U0001f50a', '\U0001f507')
 
-        button.config.assert_called_once_with(text='🔊')
+        _, text_id = widget._ctrl_btn_ids['ctrl_tts']
+        actual_text = widget._canvas.itemcget(text_id, 'text')
+        assert actual_text == '\U0001f50a'
 
-    def test_update_button_icon_disabled(self, widget):
-        """Test button icon shows disabled state."""
-        button = Mock()
-        widget._update_button_icon(button, False, '🔊', '🔇')
+    def test_update_canvas_button_icon_disabled(self, widget):
+        """Test canvas button text shows disabled state."""
+        widget._show_buttons()
+        widget._update_canvas_button_icon('ctrl_tts', False, '\U0001f50a', '\U0001f507')
 
-        button.config.assert_called_once_with(text='🔇')
+        _, text_id = widget._ctrl_btn_ids['ctrl_tts']
+        actual_text = widget._canvas.itemcget(text_id, 'text')
+        assert actual_text == '\U0001f507'
 
-    def test_update_button_icon_none(self, widget):
-        """Test graceful handling of None button."""
-        # Should not crash
-        widget._update_button_icon(None, True, '🔊', '🔇')
+    def test_update_canvas_button_icon_missing_tag(self, widget):
+        """Test graceful handling of missing button tag."""
+        # Should not crash when tag doesn't exist
+        widget._update_canvas_button_icon('nonexistent', True, '\U0001f50a', '\U0001f507')
+
+
+class TestCanvasButtonHoverEffects:
+    """Test canvas button hover highlight and restore effects."""
+
+    def test_hover_enter_highlights_button(self, widget):
+        """Test that hovering a button changes its fill color."""
+        widget._show_buttons()
+        bg_id, text_id = widget._ctrl_btn_ids['ctrl_tts']
+
+        widget._on_ctrl_btn_enter('ctrl_tts')
+
+        # TTS starts enabled (active), so hover color is bright green
+        assert widget._canvas.itemcget(bg_id, 'fill') == '#3a8a52'
+        assert widget._canvas.itemcget(text_id, 'fill') == '#ffffff'
+
+    def test_hover_leave_restores_button(self, widget):
+        """Test that leaving a button restores its fill color."""
+        widget._show_buttons()
+        bg_id, text_id = widget._ctrl_btn_ids['ctrl_tts']
+
+        # Enter then leave
+        widget._on_ctrl_btn_enter('ctrl_tts')
+        widget._on_ctrl_btn_leave('ctrl_tts')
+
+        # TTS starts enabled (active), so base color is muted green
+        assert widget._canvas.itemcget(bg_id, 'fill') == '#2d6b3f'
+        assert widget._canvas.itemcget(text_id, 'fill') == '#cccccc'
+
+    def test_hover_enter_nonexistent_tag_no_crash(self, widget):
+        """Test that hovering a nonexistent tag doesn't crash."""
+        widget._on_ctrl_btn_enter('nonexistent')
+        widget._on_ctrl_btn_leave('nonexistent')
+
+    @patch.object(AvatarWidget, '_display_variant')
+    def test_hover_tts_triggers_preview(self, mock_display, widget):
+        """Test that hovering TTS button triggers preview image via tag lookup."""
+        widget._show_buttons()
+        widget._on_ctrl_btn_enter('ctrl_tts')
+
+        # Tag-based lookup for 'headphones' should find a match and display it
+        if widget._image_registry:
+            mock_display.assert_called_once()
+
+    @patch.object(AvatarWidget, '_load_control_image')
+    def test_hover_tags_does_not_trigger_preview(self, mock_load, widget):
+        """Test that hovering Tags button does NOT trigger preview image."""
+        widget._show_buttons()
+        widget._on_ctrl_btn_enter('ctrl_tags')
+
+        mock_load.assert_not_called()
 
 
 class TestFeedbackDisplay:

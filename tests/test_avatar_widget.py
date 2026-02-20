@@ -28,8 +28,11 @@ from pyagentvox.avatar_widget import (
     _save_position,
     cleanup_emotion_file,
     discover_variants,
+    filter_images_by_tags,
     get_emotion_file_path,
+    load_image_registry,
     read_emotion_state,
+    resolve_emotion_hierarchy,
     write_emotion_state,
 )
 
@@ -713,3 +716,308 @@ class TestTagEditorSaveIntegration:
         update_image_tags(image_path, new_tags)
 
         mock_update.assert_called_once_with(image_path, new_tags)
+
+
+# ============================================================================
+# Empty Subdirectory Fallthrough (Bug Fix Regression Test)
+# ============================================================================
+
+class TestEmptySubdirectoryFallthrough:
+    """Regression tests for empty subdirectory fallthrough in discover_variants.
+
+    Bug: When an emotion subdirectory existed but was empty (e.g., waiting/),
+    discover_variants returned [] immediately without checking root-level files.
+    Fix: Fall through to root directory when subdirectory exists but is empty.
+    """
+
+    def test_empty_subdir_falls_through_to_root(self, tmp_path: Path) -> None:
+        """Empty subdirectory should fall through to root-level file discovery."""
+        # Create empty subdirectory
+        (tmp_path / 'waiting').mkdir()
+        # Create root-level files
+        (tmp_path / 'waiting.png').touch()
+        (tmp_path / 'waiting-1.png').touch()
+
+        variants = discover_variants(tmp_path, 'waiting')
+        assert len(variants) == 2
+        names = {v.name for v in variants}
+        assert 'waiting.png' in names
+        assert 'waiting-1.png' in names
+
+    def test_populated_subdir_uses_subdir_only(self, tmp_path: Path) -> None:
+        """Non-empty subdirectory should be used exclusively (no root check)."""
+        subdir = tmp_path / 'excited'
+        subdir.mkdir()
+        (subdir / 'variant1.png').touch()
+        (subdir / 'variant2.png').touch()
+        # Root-level files should be ignored when subdir has images
+        (tmp_path / 'excited.png').touch()
+
+        variants = discover_variants(tmp_path, 'excited')
+        assert len(variants) == 2
+        assert all(v.parent == subdir for v in variants)
+
+    def test_empty_subdir_no_root_files_returns_empty(self, tmp_path: Path) -> None:
+        """Empty subdirectory with no root-level files returns empty list."""
+        (tmp_path / 'waiting').mkdir()
+        variants = discover_variants(tmp_path, 'waiting')
+        assert variants == []
+
+    def test_nonexistent_avatar_dir_returns_empty(self, tmp_path: Path) -> None:
+        """Non-existent avatar directory returns empty list without error."""
+        fake_dir = tmp_path / 'nonexistent'
+        variants = discover_variants(fake_dir, 'cheerful')
+        assert variants == []
+
+    def test_empty_subdir_with_multiple_formats(self, tmp_path: Path) -> None:
+        """Fallthrough discovers root files in multiple image formats."""
+        (tmp_path / 'calm').mkdir()
+        (tmp_path / 'calm.png').touch()
+        (tmp_path / 'calm.jpg').touch()
+
+        variants = discover_variants(tmp_path, 'calm')
+        assert len(variants) == 2
+        names = {v.name for v in variants}
+        assert 'calm.png' in names
+        assert 'calm.jpg' in names
+
+
+# ============================================================================
+# Waiting Emotion Tag-Based Image Lookup
+# ============================================================================
+
+class TestWaitingTagLookup:
+    """Test that 'waiting' emotion finds images via tag-based lookup.
+
+    The image registry uses tags to find images for emotions. Images tagged
+    with 'waiting' (e.g., bored.png, cutewait.png, waiting2.png) should be
+    discoverable even when the waiting/ subdirectory is empty.
+    """
+
+    def test_registry_finds_waiting_tagged_images(self, tmp_path: Path) -> None:
+        """Tag-based lookup finds images with 'waiting' tag."""
+        (tmp_path / 'bored.png').touch()
+        (tmp_path / 'cutewait.png').touch()
+        (tmp_path / 'waiting2.png').touch()
+
+        registry_config = [
+            {'path': 'bored.png', 'tags': ['bored', 'waiting', 'dress']},
+            {'path': 'cutewait.png', 'tags': ['warm', 'waiting', 'patient']},
+            {'path': 'waiting2.png', 'tags': ['calm', 'waiting', 'patient']},
+            {'path': 'cheerful.png', 'tags': ['cheerful', 'dress']},  # NOT waiting
+        ]
+
+        registry = load_image_registry(tmp_path, registry_config)
+
+        # Filter for 'waiting' tag (same logic as _get_variants)
+        avatar_name = EMOTION_AVATAR_MAP.get('waiting', 'waiting')
+        emotion_images = [
+            img for img in registry
+            if (avatar_name.lower() in img.tag_set
+                and not any(tag.startswith('control') for tag in img.tag_set))
+        ]
+
+        assert len(emotion_images) == 3
+        names = {img.path.name for img in emotion_images}
+        assert names == {'bored.png', 'cutewait.png', 'waiting2.png'}
+
+    def test_waiting_tag_lookup_excludes_control_images(self, tmp_path: Path) -> None:
+        """Control-tagged images are excluded from emotion lookups."""
+        (tmp_path / 'waiting_img.png').touch()
+        (tmp_path / 'control_img.png').touch()
+
+        registry_config = [
+            {'path': 'waiting_img.png', 'tags': ['waiting', 'patient']},
+            {'path': 'control_img.png', 'tags': ['waiting', 'control-tts-hover-on']},
+        ]
+
+        registry = load_image_registry(tmp_path, registry_config)
+        emotion_images = [
+            img for img in registry
+            if ('waiting' in img.tag_set
+                and not any(tag.startswith('control') for tag in img.tag_set))
+        ]
+
+        assert len(emotion_images) == 1
+        assert emotion_images[0].path.name == 'waiting_img.png'
+
+    def test_filter_images_by_waiting_tag(self, tmp_path: Path) -> None:
+        """filter_images_by_tags correctly filters for waiting tag."""
+        entries = [
+            ImageEntry(path=tmp_path / 'bored.png', tags=['bored', 'waiting']),
+            ImageEntry(path=tmp_path / 'cheerful.png', tags=['cheerful']),
+            ImageEntry(path=tmp_path / 'cutewait.png', tags=['warm', 'waiting']),
+        ]
+
+        filtered = filter_images_by_tags(entries, ['waiting'], [], False)
+        assert len(filtered) == 2
+        names = {img.path.name for img in filtered}
+        assert names == {'bored.png', 'cutewait.png'}
+
+
+# ============================================================================
+# Image Registry Loading
+# ============================================================================
+
+class TestImageRegistryLoading:
+    """Test image registry loading from config with validation."""
+
+    def test_load_registry_resolves_relative_paths(self, tmp_path: Path) -> None:
+        """Relative paths are resolved against the avatar directory."""
+        (tmp_path / 'cheerful.png').touch()
+        config = [{'path': 'cheerful.png', 'tags': ['cheerful']}]
+
+        entries = load_image_registry(tmp_path, config)
+        assert len(entries) == 1
+        assert entries[0].path == tmp_path / 'cheerful.png'
+
+    def test_load_registry_skips_no_emotion_tag(self, tmp_path: Path) -> None:
+        """Images without any emotion or control tag are skipped."""
+        (tmp_path / 'random.png').touch()
+        config = [{'path': 'random.png', 'tags': ['dress', 'casual']}]
+
+        entries = load_image_registry(tmp_path, config)
+        assert len(entries) == 0
+
+    def test_load_registry_accepts_control_tags(self, tmp_path: Path) -> None:
+        """Images with only control tags (no emotion) are accepted."""
+        (tmp_path / 'control.png').touch()
+        config = [{'path': 'control.png', 'tags': ['control-tts-hover-on']}]
+
+        entries = load_image_registry(tmp_path, config)
+        assert len(entries) == 1
+
+    def test_load_registry_skips_invalid_entries(self, tmp_path: Path) -> None:
+        """Entries missing path or tags are skipped."""
+        config = [
+            {'tags': ['cheerful']},  # Missing path
+            {'path': 'test.png'},    # Missing tags
+            'not_a_dict',            # Not a dict
+            {'path': 'valid.png', 'tags': ['cheerful']},  # Valid
+        ]
+
+        entries = load_image_registry(tmp_path, config)
+        assert len(entries) == 1
+        assert entries[0].path.name == 'valid.png'
+
+    def test_load_registry_accepts_waiting_tag(self, tmp_path: Path) -> None:
+        """'waiting' is a valid emotion tag for the image registry."""
+        (tmp_path / 'patient.png').touch()
+        config = [{'path': 'patient.png', 'tags': ['waiting']}]
+
+        entries = load_image_registry(tmp_path, config)
+        assert len(entries) == 1
+
+    def test_load_registry_empty_config(self, tmp_path: Path) -> None:
+        """Empty config produces empty registry."""
+        entries = load_image_registry(tmp_path, [])
+        assert entries == []
+
+    def test_load_registry_preserves_tag_order(self, tmp_path: Path) -> None:
+        """Original tag list order is preserved in loaded entries."""
+        (tmp_path / 'test.png').touch()
+        config = [{'path': 'test.png', 'tags': ['cheerful', 'dress', 'wave']}]
+
+        entries = load_image_registry(tmp_path, config)
+        assert entries[0].tags == ['cheerful', 'dress', 'wave']
+
+
+# ============================================================================
+# Emotion Hierarchy Resolution
+# ============================================================================
+
+class TestEmotionHierarchyResolution:
+    """Test resolve_emotion_hierarchy with various emotion inputs."""
+
+    def test_direct_emotion_with_images(self, tmp_path: Path) -> None:
+        """Emotion with direct images resolves to itself."""
+        (tmp_path / 'excited.png').touch()
+        result = resolve_emotion_hierarchy('excited', tmp_path)
+        assert result == 'excited'
+
+    def test_mapped_emotion_resolves_via_map(self, tmp_path: Path) -> None:
+        """Emotion mapped in EMOTION_AVATAR_MAP resolves via the map."""
+        # 'empathetic' maps to 'warm' in EMOTION_AVATAR_MAP
+        (tmp_path / 'warm.png').touch()
+        result = resolve_emotion_hierarchy('empathetic', tmp_path)
+        assert result == 'warm'
+
+    def test_unknown_emotion_falls_to_waiting(self, tmp_path: Path) -> None:
+        """Unknown emotion with no images falls back to waiting state."""
+        result = resolve_emotion_hierarchy('nonexistent_emotion', tmp_path)
+        assert result == WAITING_STATE
+
+    def test_waiting_emotion_resolves_to_waiting(self, tmp_path: Path) -> None:
+        """Waiting emotion returns waiting even when no directory images exist."""
+        result = resolve_emotion_hierarchy('waiting', tmp_path)
+        assert result == WAITING_STATE
+
+    def test_waiting_with_subdirectory_images(self, tmp_path: Path) -> None:
+        """Waiting resolves to itself when subdirectory has images."""
+        subdir = tmp_path / 'waiting'
+        subdir.mkdir()
+        (subdir / 'idle1.png').touch()
+        result = resolve_emotion_hierarchy('waiting', tmp_path)
+        assert result == 'waiting'
+
+    def test_waiting_with_root_level_images(self, tmp_path: Path) -> None:
+        """Waiting resolves to itself when root-level waiting files exist."""
+        (tmp_path / 'waiting.png').touch()
+        result = resolve_emotion_hierarchy('waiting', tmp_path)
+        assert result == 'waiting'
+
+    def test_neutral_resolves_to_cheerful(self, tmp_path: Path) -> None:
+        """Neutral emotion maps to cheerful avatar."""
+        (tmp_path / 'cheerful.png').touch()
+        result = resolve_emotion_hierarchy('neutral', tmp_path)
+        assert result == 'cheerful'
+
+
+# ============================================================================
+# Config Loading (Two-Layer Merge)
+# ============================================================================
+
+class TestAvatarConfigLoading:
+    """Test load_avatar_config two-layer merge behavior."""
+
+    def test_default_config_has_required_keys(self) -> None:
+        """Default config has all required avatar keys."""
+        from pyagentvox.avatar_widget import load_avatar_config
+
+        # Patch both config paths to nonexistent files so only defaults load
+        with patch('pyagentvox.avatar_widget.Path.exists', return_value=False):
+            config = load_avatar_config()
+
+        required_keys = [
+            'enabled', 'directory', 'default_size', 'cycle_interval',
+            'idle_states', 'emotion_hierarchy', 'filters', 'animation', 'images',
+        ]
+        for key in required_keys:
+            assert key in config, f'Missing default config key: {key}'
+
+    def test_default_images_is_empty_list(self) -> None:
+        """Default config has empty images list (populated by CWD overlay)."""
+        from pyagentvox.avatar_widget import load_avatar_config
+
+        with patch('pyagentvox.avatar_widget.Path.exists', return_value=False):
+            config = load_avatar_config()
+
+        assert config['images'] == []
+
+    def test_default_cycle_interval(self) -> None:
+        """Default cycle interval is 4000ms."""
+        from pyagentvox.avatar_widget import load_avatar_config
+
+        with patch('pyagentvox.avatar_widget.Path.exists', return_value=False):
+            config = load_avatar_config()
+
+        assert config['cycle_interval'] == 4000
+
+    def test_default_idle_states(self) -> None:
+        """Default idle states have waiting=0, bored=60, sleeping=120."""
+        from pyagentvox.avatar_widget import load_avatar_config
+
+        with patch('pyagentvox.avatar_widget.Path.exists', return_value=False):
+            config = load_avatar_config()
+
+        assert config['idle_states'] == {'waiting': 0, 'bored': 60, 'sleeping': 120}

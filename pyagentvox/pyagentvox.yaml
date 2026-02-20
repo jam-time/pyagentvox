@@ -16,8 +16,8 @@ avatar:
   # Idle state timers (seconds of inactivity)
   idle_states:
     waiting: 0      # Immediate when no TTS is playing
-    bored: 120      # After 2 minutes of waiting
-    sleeping: 300   # After 5 minutes of waiting
+    bored: 60       # After 1 minute of inactivity
+    sleeping: 120   # After 2 minutes of inactivity
 
   # Interactive control settings
   controls:
@@ -34,11 +34,11 @@ avatar:
     exclude_tags: []      # Never show images with these tags
     require_all_include: false  # If true, require ALL include tags; if false, require ANY
 
-  # Flip animation settings
+  # Shimmer animation settings (brightness pulse on emotion transitions)
   animation:
-    flip_threshold: 0.5   # Animate if tags differ by >= 50% (0.0-1.0)
-    flip_duration: 300    # Milliseconds for full flip animation
-    flip_steps: 15        # Number of animation frames
+    shimmer_threshold: 0.5   # Animate if tags differ by >= 50% (0.0-1.0)
+    shimmer_duration: 400    # Milliseconds for full shimmer animation
+    shimmer_steps: 8         # Number of animation frames per phase
 
   # Explicit image registry (empty = use directory-based discovery for backward compat)
   # Each entry has: path (relative to avatar.directory or absolute) and tags (list)

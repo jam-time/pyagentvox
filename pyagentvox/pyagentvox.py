@@ -73,9 +73,11 @@ __all__ = ['PyAgentVox', 'run', 'main']
 try:
     from . import config
     from . import instruction
+    from .avatar_widget import cleanup_emotion_file, write_emotion_state
 except ImportError:
     import config
     import instruction
+    from avatar_widget import cleanup_emotion_file, write_emotion_state
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -250,7 +252,8 @@ class PyAgentVox:
         config_dict: Optional[dict[str, Any]] = None,
         config_path: Optional[str] = None,
         profile_name: Optional[str] = None,
-        tts_only: bool = False
+        tts_only: bool = False,
+        avatar: bool = True,
     ) -> None:
         """Initialize PyAgentVox with configuration.
 
@@ -259,6 +262,7 @@ class PyAgentVox:
             config_path: Optional path to config file (JSON or YAML)
             profile_name: Optional profile name (for voice instructions)
             tts_only: If True, only enable TTS output (disable speech recognition)
+            avatar: If True, launch the floating avatar widget subprocess
 
         Raises:
             RuntimeError: If another PyAgentVox instance is already running
@@ -333,6 +337,7 @@ class PyAgentVox:
         self._input_position: int = 0
         self.injector_process: Optional[subprocess.Popen] = None
         self.tts_monitor_process: Optional[subprocess.Popen] = None
+        self.avatar_process: Optional[subprocess.Popen] = None
         self.tts_queue: Optional[asyncio.Queue] = None  # Created in run()
 
         # Auto-pause for speech recognition
@@ -346,6 +351,9 @@ class PyAgentVox:
 
         self._start_voice_injector()
         self._start_tts_monitor()
+
+        if avatar:
+            self._start_avatar_widget()
 
         instructions_path = self.config.get('instructions_path')
         if instructions_path:
@@ -449,6 +457,103 @@ class PyAgentVox:
         except Exception as e:
             logger.error(f'Failed to start TTS monitor: {e}')
             logger.info('You can still run it manually: uv run python tts_monitor.py')
+
+    def _start_avatar_widget(self) -> None:
+        """Start the floating avatar widget as a subprocess.
+
+        Forwards the --debug flag from the parent process so avatar logging
+        is visible. Captures stderr for crash diagnostics.
+        """
+        try:
+            script_dir = Path(__file__).parent
+            avatar_script = script_dir / 'avatar_widget.py'
+
+            if not avatar_script.exists():
+                logger.warning(f'Avatar widget not found: {avatar_script}')
+                return
+
+            cmd = [sys.executable, str(avatar_script)]
+
+            # Pass our PID so avatar can monitor our emotion state file
+            cmd.extend(['--pid', str(os.getpid())])
+
+            avatar_config = self.config.get('avatar', {})
+            avatar_size = avatar_config.get('size')
+            if avatar_size:
+                cmd.extend(['--size', str(avatar_size)])
+
+            # Forward debug flag so avatar subprocess gets debug-level logging
+            if logger.isEnabledFor(logging.DEBUG):
+                cmd.append('--debug')
+
+            # Write initial waiting state so avatar starts in idle mode
+            write_emotion_state(os.getpid(), 'waiting')
+
+            logger.debug(f'Avatar widget command: {" ".join(cmd)}')
+
+            # Let avatar inherit stderr so its logs are visible in the console.
+            # Pipe stdout only (avatar doesn't use it for logging).
+            self.avatar_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=None,  # Inherit parent stderr so logging output is visible
+            )
+
+            logger.info(f'Avatar widget started (PID: {self.avatar_process.pid})')
+
+            time.sleep(0.5)
+
+            if self.avatar_process.poll() is not None:
+                returncode = self.avatar_process.returncode
+                logger.warning(f'Avatar widget failed to start (exit code: {returncode})')
+                # Try to read any stdout for diagnostics
+                if self.avatar_process.stdout:
+                    stdout_output = self.avatar_process.stdout.read().decode('utf-8', errors='replace')
+                    if stdout_output.strip():
+                        logger.warning(f'Avatar stdout: {stdout_output[:500]}')
+                self.avatar_process = None
+
+        except Exception as e:
+            logger.warning(f'Failed to start avatar widget: {e}')
+            logger.debug(f'Avatar start error details:', exc_info=True)
+
+    async def _watch_avatar_process(self) -> None:
+        """Monitor the avatar widget subprocess and restart if it dies.
+
+        Polls every 5 seconds. If the process has exited, logs the exit code
+        and restarts it automatically up to 3 times.
+        """
+        max_restarts = 3
+        restart_count = 0
+        poll_interval = 5.0
+
+        while self.running:
+            await asyncio.sleep(poll_interval)
+
+            if self.avatar_process is None:
+                continue
+
+            rc = self.avatar_process.poll()
+            if rc is not None:
+                # Process exited
+                logger.warning(f'[AVATAR] Widget process exited (code: {rc})')
+
+                # Read any captured stdout for diagnostics
+                if self.avatar_process.stdout:
+                    with contextlib.suppress(Exception):
+                        stdout_data = self.avatar_process.stdout.read().decode('utf-8', errors='replace')
+                        if stdout_data.strip():
+                            logger.warning(f'[AVATAR] Widget stdout: {stdout_data[:500]}')
+
+                self.avatar_process = None
+
+                if restart_count < max_restarts:
+                    restart_count += 1
+                    logger.info(f'[AVATAR] Restarting widget (attempt {restart_count}/{max_restarts})')
+                    self._start_avatar_widget()
+                else:
+                    logger.error(f'[AVATAR] Widget crashed {max_restarts} times, giving up')
+                    break
 
     @staticmethod
     def _clean_text_for_speech(text: str) -> str:
@@ -647,12 +752,19 @@ class PyAgentVox:
 
         # Play all segments sequentially (no generation delays between!)
         logger.info(f'[TTS] Playing {len(segments)} segment(s) sequentially...')
+        my_pid = os.getpid()
         for idx, (audio_path, (emotion, segment_text)) in enumerate(zip(audio_paths, segments)):
             if audio_path:
+                # Signal avatar widget: emotion starts playing
+                avatar_emotion = emotion or 'neutral'
+                write_emotion_state(my_pid, avatar_emotion)
                 logger.debug(f'[TTS] Playing segment {idx+1}/{len(segments)}')
                 await self._play_audio_file(audio_path, len(segment_text))
             else:
                 logger.warning(f'[TTS] Skipping segment {idx+1} (generation failed)')
+
+        # Signal avatar widget: all audio finished, return to waiting
+        write_emotion_state(my_pid, 'waiting')
 
         # Cleanup all audio files after playback
         for audio_path in audio_paths:
@@ -822,6 +934,46 @@ class PyAgentVox:
 
             except Exception as e:
                 logger.error(f'Error watching control file: {e}')
+
+            await asyncio.sleep(0.5)
+
+    async def _watch_avatar_controls(self) -> None:
+        """Watch avatar widget TTS/STT state files for control changes.
+
+        Monitors separate state files written by the avatar widget when users
+        toggle TTS/STT via the interactive controls.
+        """
+        tts_file = Path(tempfile.gettempdir()) / f'pyagentvox_tts_enabled_{os.getpid()}.txt'
+        stt_file = Path(tempfile.gettempdir()) / f'pyagentvox_stt_enabled_{os.getpid()}.txt'
+        last_tts_state = None
+        last_stt_state = None
+
+        logger.debug('Started watching avatar widget control states...')
+
+        while self.running:
+            try:
+                # Check TTS state file
+                if tts_file.exists():
+                    tts_state = tts_file.read_text(encoding='utf-8').strip()
+                    if tts_state != last_tts_state:
+                        last_tts_state = tts_state
+                        self.tts_enabled = (tts_state == '1')
+                        logger.info(f'[AVATAR] TTS {"enabled" if self.tts_enabled else "disabled"}')
+
+                # Check STT state file
+                if stt_file.exists():
+                    stt_state = stt_file.read_text(encoding='utf-8').strip()
+                    if stt_state != last_stt_state:
+                        last_stt_state = stt_state
+                        new_stt_enabled = (stt_state == '1')
+
+                        # Only log and update if state actually changed
+                        if new_stt_enabled != self.stt_enabled:
+                            self.stt_enabled = new_stt_enabled
+                            logger.info(f'[AVATAR] STT {"enabled" if self.stt_enabled else "disabled"}')
+
+            except Exception as e:
+                logger.error(f'Error watching avatar control states: {e}')
 
             await asyncio.sleep(0.5)
 
@@ -1128,6 +1280,15 @@ class PyAgentVox:
             except Exception as e:
                 logger.warning(f'Error stopping TTS monitor: {e}')
 
+        # Stop avatar widget
+        if hasattr(self, 'avatar_process') and self.avatar_process:
+            try:
+                self.avatar_process.terminate()
+                self.avatar_process.wait(timeout=2)
+                logger.info('Avatar widget stopped')
+            except Exception as e:
+                logger.warning(f'Error stopping avatar widget: {e}')
+
         # Cleanup pygame mixer
         try:
             pygame.mixer.quit()
@@ -1155,6 +1316,17 @@ class PyAgentVox:
             except Exception as e:
                 logger.warning(f'Error cleaning output file: {e}')
 
+        # Clean up avatar emotion IPC file
+        cleanup_emotion_file(os.getpid())
+
+        # Clean up avatar control state files
+        tts_state_file = Path(tempfile.gettempdir()) / f'pyagentvox_tts_enabled_{os.getpid()}.txt'
+        stt_state_file = Path(tempfile.gettempdir()) / f'pyagentvox_stt_enabled_{os.getpid()}.txt'
+        with contextlib.suppress(OSError):
+            tts_state_file.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            stt_state_file.unlink(missing_ok=True)
+
         # Remove PID lock file
         if hasattr(self, 'pid_file'):
             try:
@@ -1181,8 +1353,10 @@ class PyAgentVox:
             await asyncio.gather(
                 self._watch_input_file(),
                 self._watch_profile_control(),
-                self._watch_control_file(),      # TTS/STT control
+                self._watch_control_file(),      # TTS/STT control (legacy)
+                self._watch_avatar_controls(),   # Avatar widget TTS/STT control
                 self._watch_modify_file(),       # Voice modifications
+                self._watch_avatar_process(),    # Avatar subprocess watchdog
                 self._process_tts_queue()
             )
         except KeyboardInterrupt:
@@ -1202,6 +1376,7 @@ def run(
     debug: bool = False,
     log_file: Optional[str] = None,
     tts_only: bool = False,
+    avatar: bool = True,
 ) -> None:
     """Run PyAgentVox voice system.
 
@@ -1215,6 +1390,8 @@ def run(
         save_overrides: If True, save CLI overrides back to config file
         debug: Enable debug logging
         log_file: Optional path to log file
+        tts_only: If True, only enable TTS output (disable speech recognition)
+        avatar: If True, launch the floating avatar widget
     """
     if config_dict is None:
         loaded_config, config_file = config.load_config(
@@ -1251,7 +1428,7 @@ def run(
 
     agent_vox = None
     try:
-        agent_vox = PyAgentVox(config_dict=loaded_config, profile_name=profile, tts_only=tts_only)
+        agent_vox = PyAgentVox(config_dict=loaded_config, profile_name=profile, tts_only=tts_only, avatar=avatar)
         asyncio.run(agent_vox.run())
     except KeyboardInterrupt:
         logger.info('\n\nGoodbye!')

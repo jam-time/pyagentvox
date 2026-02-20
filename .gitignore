@@ -58,6 +58,7 @@ uv.lock
 .coverage
 htmlcov/
 
-# AI
+# AI - track skills/docs/agents/hooks, exclude local settings and session state
 CLAUDE.md
-.claude/
+.claude/settings.local.json
+.claude/agent-memory/

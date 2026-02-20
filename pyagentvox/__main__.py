@@ -3,6 +3,7 @@
 This module provides subcommand-based CLI for controlling PyAgentVox.
 
 Usage:
+    python -m pyagentvox setup              # Autonomous setup (config + skills)
     python -m pyagentvox start [options]    # Start PyAgentVox
     python -m pyagentvox stop               # Stop running instance
     python -m pyagentvox switch <profile>   # Switch voice profile
@@ -26,6 +27,7 @@ from pathlib import Path
 
 from . import config
 from .pyagentvox import run
+from .setup import run_setup
 
 try:
     import psutil
@@ -120,6 +122,13 @@ def get_running_pid() -> int | None:
     return None
 
 
+def cmd_setup(args: argparse.Namespace) -> None:
+    """Run autonomous setup: generate config and install skills."""
+    success = run_setup(force=args.force)
+    if not success:
+        sys.exit(1)
+
+
 def cmd_start(args: argparse.Namespace) -> None:
     """Start PyAgentVox."""
     # Check if already running
@@ -152,6 +161,8 @@ def cmd_start(args: argparse.Namespace) -> None:
             cmd.extend(['--log-file', args.log_file])
         if args.tts_only:
             cmd.append('--tts-only')
+        if args.no_avatar:
+            cmd.append('--no-avatar')
 
         CREATE_NO_WINDOW = 0x08000000
         proc = subprocess.Popen(cmd, creationflags=CREATE_NO_WINDOW,
@@ -187,6 +198,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         debug=args.debug,
         log_file=args.log_file,
         tts_only=args.tts_only,
+        avatar=not args.no_avatar,
     )
 
 
@@ -343,6 +355,11 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(dest='command', help='Subcommands')
 
+    # SETUP subcommand
+    setup_parser = subparsers.add_parser('setup', help='Autonomous setup (config + skills)')
+    setup_parser.add_argument('--force', action='store_true', help='Overwrite existing files')
+    setup_parser.set_defaults(func=cmd_setup)
+
     # START subcommand
     start_parser = subparsers.add_parser('start', help='Start PyAgentVox')
     start_parser.add_argument('--config', type=str, help='Path to config file (JSON or YAML)')
@@ -357,6 +374,11 @@ def main() -> None:
     start_parser.add_argument('--log-file', type=str, help='Write logs to file')
     start_parser.add_argument('--background', action='store_true', help='Run in background')
     start_parser.add_argument('--tts-only', action='store_true', help='TTS only (no STT)')
+    avatar_group = start_parser.add_mutually_exclusive_group()
+    avatar_group.add_argument('--avatar', action='store_true', default=True,
+                              help='Enable floating avatar widget (default)')
+    avatar_group.add_argument('--no-avatar', action='store_true',
+                              help='Disable floating avatar widget')
     start_parser.set_defaults(func=cmd_start)
 
     # STOP subcommand
