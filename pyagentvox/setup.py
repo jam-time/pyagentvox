@@ -141,7 +141,7 @@ def _patch_skill_script(script_path: Path, project_root: str) -> None:
 def install_skills(force: bool = False) -> tuple[int, int]:
     """Copy Claude Code skills to ~/.claude/skills/ with path patching.
 
-    Each skill directory contains a skill.md and a .sh script. The .sh scripts
+    Each skill directory contains a SKILL.md and a .sh script. The .sh scripts
     have a hardcoded PYAGENTVOX_ROOT path that gets patched to the actual
     installation location.
 
@@ -232,7 +232,7 @@ def validate_setup() -> list[str]:
     missing_skills = []
     for skill_name in SKILL_DIRS:
         skill_dir = dest_dir / skill_name
-        if not skill_dir.exists() or not (skill_dir / 'skill.md').exists():
+        if not skill_dir.exists() or not (skill_dir / 'SKILL.md').exists():
             missing_skills.append(skill_name)
 
     if missing_skills:

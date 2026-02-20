@@ -1,3 +1,10 @@
+---
+name: voice
+description: Start PyAgentVox voice communication for this session. Use when enabling voice output (TTS) or full two-way voice interaction (TTS + speech recognition). Arguments: optional profile name (michelle, jenny, emma, aria, ava, sonia, libby) and/or modes (tts-only, debug, custom).
+disable-model-invocation: true
+argument-hint: "[profile] [tts-only|debug|custom]"
+---
+
 # Voice Chat Skill
 
 Start PyAgentVox voice communication system for two-way voice interaction with Claude.

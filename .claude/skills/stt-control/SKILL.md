@@ -1,3 +1,9 @@
+---
+name: stt-control
+description: Toggle PyAgentVox speech-to-text (microphone) on or off without restarting. Use when user wants to stop or resume speaking to Claude via microphone.
+argument-hint: "on|off"
+---
+
 # STT Control
 
 Enable or disable speech recognition (speech-to-text) at runtime without restarting PyAgentVox.

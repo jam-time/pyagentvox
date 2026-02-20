@@ -1,3 +1,9 @@
+---
+name: voice-switch
+description: Switch PyAgentVox voice profile without restarting. Use when changing voice personality - e.g. switch to Michelle for empathetic tone, Jenny for energetic, Sonia for professional. Available profiles: michelle, jenny, emma, aria, ava, sonia, libby.
+argument-hint: "<profile>"
+---
+
 # Voice Profile Switch Skill
 
 Switch PyAgentVox voice profiles on the fly without restarting. Perfect for adapting voice tone to match conversation context!

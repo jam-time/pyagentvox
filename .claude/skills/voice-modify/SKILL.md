@@ -1,3 +1,9 @@
+---
+name: voice-modify
+description: Adjust PyAgentVox voice settings at runtime (pitch, speed) without restarting. Use when user mentions voice is too high/low/fast/slow. Examples: pitch=+10, speed=-15, neutral.pitch=+5, all.speed=+20.
+argument-hint: "<setting>=<value>"
+---
+
 # Voice Modify
 
 Modify voice settings (pitch, speed) at runtime without restarting PyAgentVox.

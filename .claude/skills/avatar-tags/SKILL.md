@@ -1,3 +1,10 @@
+---
+name: avatar-tags
+description: Manage Luna avatar image tag filters at runtime. Use to show/hide avatar images by outfit or style tags. Subcommands: list, filter --include <tags>, filter --exclude <tags>, filter --reset, current.
+disable-model-invocation: true
+argument-hint: "list|filter|current [--include <tags>] [--exclude <tags>] [--reset]"
+---
+
 # Avatar Tags Skill
 
 Query and filter Luna's avatar images by tag. See what tags are available, apply filters to control which images display, and check current filter state.
