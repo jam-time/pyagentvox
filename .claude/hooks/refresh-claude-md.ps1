@@ -1,22 +1,10 @@
-# Hook script to refresh CLAUDE.md contents on each prompt submission
+# Hook script to refresh global CLAUDE.md contents on each prompt submission
+# Project CLAUDE.md no longer has injected voice content (voice-context skill handles it)
 # Output will be added to Claude's context
 
-$projectClaudeMd = Join-Path $PSScriptRoot "..\..\CLAUDE.md"
 $globalClaudeMd = "C:\Users\jamea\.claude\CLAUDE.md"
 
 $exitCode = 0
-
-# Refresh project CLAUDE.md
-if (Test-Path $projectClaudeMd) {
-    Write-Output "<claude-md-refresh>"
-    Write-Output "Contents of CLAUDE.md (auto-refreshed on prompt submit):"
-    Write-Output ""
-    Get-Content $projectClaudeMd -Raw
-    Write-Output "</claude-md-refresh>"
-} else {
-    Write-Error "Project CLAUDE.md not found at $projectClaudeMd"
-    $exitCode = 1
-}
 
 # Refresh global CLAUDE.md
 if (Test-Path $globalClaudeMd) {

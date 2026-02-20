@@ -59,8 +59,7 @@ You can now **combine** profiles with modes!
 1. **PyAgentVox starts** in background with selected profile
 2. **Voice injector launches** automatically (types speech into Claude Code, unless tts-only)
 3. **TTS monitor starts** automatically (watches for Claude's responses)
-4. **Instructions injected** into CLAUDE.md (tells Claude about emotion tags and profiles)
-5. **You can start talking** immediately! (unless tts-only mode)
+4. **You can start talking** immediately! (unless tts-only mode)
 
 ## Examples
 

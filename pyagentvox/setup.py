@@ -36,6 +36,7 @@ SKILL_DIRS = [
     'tts-control',
     'stt-control',
     'avatar-tags',
+    'voice-context',
 ]
 
 

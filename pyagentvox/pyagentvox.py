@@ -7,7 +7,7 @@ integration with Claude Code via subprocess coordination.
 Features:
     - Real-time speech recognition using Google Speech API
     - Multi-voice TTS with emotion tag support ([cheerful], [calm], etc.)
-    - Automatic instruction file injection for Claude integration
+    - Voice context via Claude Code skill (progressive disclosure)
     - Background subprocess management for voice injector and TTS monitor
     - Async message queueing to prevent TTS interruption
 
@@ -69,14 +69,12 @@ except (ImportError, AttributeError) as e:
 __author__ = 'Jake Meador <jameador13@gmail.com>'
 __all__ = ['PyAgentVox', 'run', 'main']
 
-# Import config and instruction modules (handle both package and script usage)
+# Import config and helper modules (handle both package and script usage)
 try:
     from . import config
-    from . import instruction
     from .avatar_widget import cleanup_emotion_file, write_emotion_state
 except ImportError:
     import config
-    import instruction
     from avatar_widget import cleanup_emotion_file, write_emotion_state
 
 if sys.platform == 'win32':
@@ -355,17 +353,8 @@ class PyAgentVox:
         if avatar:
             self._start_avatar_widget()
 
-        instructions_path = self.config.get('instructions_path')
-        if instructions_path:
-            instructions_path = Path(instructions_path)
-
-        success, refresh_message = instruction.inject_voice_instructions(
-            instructions_path,
-            config=self.config,
-            profile_name=self.profile_name
-        )
-        if success and refresh_message:
-            logger.info(f'\n{refresh_message}\n')
+        # Voice instructions are now provided via the voice-context skill
+        # (progressive disclosure) instead of CLAUDE.md injection.
 
         self._print_header()
 
@@ -1140,16 +1129,6 @@ class PyAgentVox:
             self.config = new_config
             self.profile_name = profile_name
 
-            # Re-inject voice instructions with new profile
-            instructions_path = self.config.get('instructions_path')
-            if instructions_path:
-                instructions_path = Path(instructions_path)
-            instruction.inject_voice_instructions(
-                instructions_path,
-                config=self.config,
-                profile_name=self.profile_name
-            )
-
             # Reinitialize emotion voices with new profile
             self.emotion_voices = {}
             standard_emotions = ['neutral', 'cheerful', 'excited', 'empathetic', 'warm', 'calm', 'focused']
@@ -1260,7 +1239,6 @@ class PyAgentVox:
 
     def _cleanup(self) -> None:
         """Cleanup temporary files and stop background processes."""
-        instruction.remove_voice_instructions()
 
         # Stop voice injector
         if hasattr(self, 'injector_process') and self.injector_process:
